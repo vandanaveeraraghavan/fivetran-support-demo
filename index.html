@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fivetran Support Portal</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #080e1c; --surface: #0f172a; --s2: #1a2540; --s3: #1e3a5f;
+  --border: #1e3a5f; --bs: #141f35;
+  --blue: #3b82f6; --bb: #60a5fa; --bd: #1d4ed8;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --purple: #a855f7;
+  --t1: #f1f5f9; --t2: #94a3b8; --t3: #64748b;
+  --r: 10px; --rs: 6px;
+}
+body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--t1); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+/* ── Key Modal ── */
+.modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.7); backdrop-filter:blur(4px); z-index:100; display:flex; align-items:center; justify-content:center; }
+.modal-bg.hidden { display:none; }
+.modal { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:32px; width:440px; max-width:90vw; }
+.modal h2 { font-size:18px; font-weight:700; margin-bottom:6px; }
+.modal p { font-size:13px; color:var(--t2); line-height:1.5; margin-bottom:20px; }
+.modal label { font-size:12px; font-weight:600; color:var(--t3); text-transform:uppercase; letter-spacing:.5px; display:block; margin-bottom:6px; }
+.modal input { width:100%; background:var(--s2); border:1px solid var(--border); color:var(--t1); padding:10px 13px; border-radius:var(--rs); font-size:13px; font-family:inherit; outline:none; }
+.modal input:focus { border-color:var(--blue); }
+.modal-footer { display:flex; gap:10px; margin-top:18px; }
+.mbtn { flex:1; padding:10px; border-radius:var(--rs); font-size:13px; font-weight:600; cursor:pointer; border:none; transition:background .15s; }
+.mbtn.primary { background:var(--blue); color:#fff; }
+.mbtn.primary:hover { background:var(--bd); }
+.mbtn.secondary { background:var(--s2); color:var(--t2); border:1px solid var(--border); }
+.mbtn.secondary:hover { background:var(--s3); color:var(--t1); }
+.modal-note { font-size:11px; color:var(--t3); margin-top:12px; line-height:1.4; }
+.modal-note a { color:var(--bb); text-decoration:none; }
+
+/* ── Header ── */
+.hdr { background:var(--surface); border-bottom:1px solid var(--border); padding:0 24px; display:flex; align-items:center; height:58px; flex-shrink:0; gap:28px; }
+.logo { display:flex; align-items:center; gap:10px; text-decoration:none; }
+.logo-ico { width:30px; height:30px; background:var(--blue); border-radius:7px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#fff; }
+.logo-txt { font-size:14px; font-weight:600; color:var(--t1); }
+.logo-sub { color:var(--t3); font-weight:400; }
+.tabs { display:flex; gap:2px; flex:1; }
+.tab { padding:5px 15px; border-radius:var(--rs); cursor:pointer; font-size:13.5px; font-weight:500; color:var(--t2); border:none; background:none; transition:all .15s; }
+.tab:hover { background:var(--s2); color:var(--t1); }
+.tab.active { background:var(--s3); color:var(--bb); }
+.tcnt { background:rgba(59,130,246,.2); color:var(--bb); padding:1px 7px; border-radius:10px; font-size:11px; margin-left:5px; }
+.hdr-r { display:flex; align-items:center; gap:10px; }
+.notif { width:30px; height:30px; border-radius:50%; background:var(--s2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:13px; }
+.key-btn { padding:5px 11px; border-radius:var(--rs); font-size:11.5px; font-weight:600; cursor:pointer; background:rgba(59,130,246,.12); border:1px solid rgba(59,130,246,.3); color:var(--bb); transition:all .15s; }
+.key-btn:hover { background:rgba(59,130,246,.2); }
+.uinfo { display:flex; flex-direction:column; align-items:flex-end; }
+.uname { font-size:13px; font-weight:600; }
+.uemail { font-size:11px; color:var(--t3); }
+.av { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#3b82f6,#8b5cf6); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; cursor:pointer; }
+
+/* ── Panels ── */
+.panel { display:none; flex:1; overflow:hidden; flex-direction:column; min-height:0; }
+.panel.active { display:flex; }
+
+/* ── Banners ── */
+.banners { display:flex; gap:10px; padding:10px 24px; flex-shrink:0; }
+.banner { flex:1; padding:9px 14px; border-radius:var(--r); display:flex; align-items:center; gap:10px; font-size:13px; }
+.b-status { background:rgba(34,197,94,.07); border:1px solid rgba(34,197,94,.22); }
+.b-status .dot { width:8px; height:8px; border-radius:50%; background:var(--green); flex-shrink:0; animation:pg 2s infinite; }
+@keyframes pg { 0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)} 50%{box-shadow:0 0 0 4px rgba(34,197,94,0)} }
+.st-label { color:var(--green); font-weight:600; }
+.st-detail { color:var(--t3); font-size:11.5px; }
+.b-status a { color:var(--green); text-decoration:none; font-size:11.5px; margin-left:auto; opacity:.75; }
+.b-human { background:rgba(59,130,246,.07); border:1px solid rgba(59,130,246,.22); justify-content:space-between; }
+.bh-txt .lbl { font-weight:600; color:var(--bb); font-size:13px; }
+.bh-txt .sub { color:var(--t3); font-size:11.5px; }
+.hbtn { background:var(--blue); color:#fff; border:none; padding:7px 16px; border-radius:var(--rs); font-size:12.5px; font-weight:600; cursor:pointer; transition:background .15s; white-space:nowrap; }
+.hbtn:hover { background:var(--bd); }
+
+/* ── Grid ── */
+.grid { display:grid; grid-template-columns:1fr 308px; gap:14px; padding:0 24px 14px; flex:1; overflow:hidden; min-height:0; }
+
+/* ── Chat ── */
+.chat-wrap { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); display:flex; flex-direction:column; overflow:hidden; min-height:0; }
+.chat-hdr { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.ai-av { width:34px; height:34px; background:linear-gradient(135deg,var(--blue),#8b5cf6); border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }
+.ai-name { font-size:13.5px; font-weight:600; }
+.ai-status { font-size:11.5px; color:var(--green); display:flex; align-items:center; gap:4px; }
+.ai-status::before { content:''; width:5px; height:5px; border-radius:50%; background:var(--green); display:inline-block; }
+.ai-status.no-key::before { background:var(--yellow); }
+.ai-status.no-key { color:var(--yellow); }
+.kb-badge { font-size:11px; background:rgba(59,130,246,.13); border:1px solid rgba(59,130,246,.28); color:var(--bb); padding:3px 8px; border-radius:20px; margin-left:auto; }
+
+.msgs { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; scroll-behavior:smooth; min-height:0; }
+.msgs::-webkit-scrollbar { width:3px; }
+.msgs::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+.msg { display:flex; gap:8px; max-width:88%; animation:fiu .2s ease; }
+@keyframes fiu { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+.msg.user { align-self:flex-end; flex-direction:row-reverse; }
+.mav { width:26px; height:26px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; margin-top:2px; }
+.msg.agent .mav { background:linear-gradient(135deg,var(--blue),#8b5cf6); color:#fff; }
+.msg.user .mav { background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; }
+.mc { flex:1; }
+.mb { padding:9px 13px; border-radius:11px; font-size:13px; line-height:1.55; }
+.msg.agent .mb { background:var(--s2); border:1px solid var(--bs); border-top-left-radius:3px; }
+.msg.user .mb { background:var(--blue); color:#fff; border-top-right-radius:3px; }
+.mb strong { font-weight:600; }
+.mb ol,.mb ul { padding-left:17px; margin-top:5px; }
+.mb li { margin-bottom:3px; }
+.mb code { background:rgba(255,255,255,.1); padding:1px 5px; border-radius:3px; font-family:'SF Mono',monospace; font-size:11.5px; }
+.mt { font-size:11px; color:var(--t3); margin-top:3px; padding:0 2px; }
+.msg.user .mt { text-align:right; }
+
+.spill { display:inline-flex; align-items:center; gap:5px; background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.2); color:var(--bb); padding:3px 9px; border-radius:20px; font-size:11px; margin:3px 0; }
+.spill .sp { width:9px; height:9px; border:1.5px solid var(--bb); border-top-color:transparent; border-radius:50%; animation:spin .6s linear infinite; display:inline-block; }
+.spill .ck { color:var(--green); }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+.typing { display:flex; gap:8px; align-items:flex-start; padding:2px 0; }
+.tbubble { background:var(--s2); border:1px solid var(--bs); padding:9px 13px; border-radius:11px; border-top-left-radius:3px; display:flex; gap:4px; align-items:center; }
+.td { width:6px; height:6px; border-radius:50%; background:var(--t3); animation:bop 1.2s ease infinite; }
+.td:nth-child(2){animation-delay:.2s} .td:nth-child(3){animation-delay:.4s}
+@keyframes bop { 0%,80%,100%{transform:translateY(0);opacity:.5} 40%{transform:translateY(-5px);opacity:1} }
+
+.acts { display:flex; gap:7px; margin-top:7px; flex-wrap:wrap; }
+.abtn { padding:5px 13px; border-radius:var(--rs); font-size:12px; font-weight:500; cursor:pointer; border:1px solid; transition:all .15s; }
+.abtn.yes { background:rgba(34,197,94,.1); border-color:rgba(34,197,94,.35); color:var(--green); }
+.abtn.yes:hover { background:rgba(34,197,94,.2); }
+.abtn.no { background:rgba(239,68,68,.1); border-color:rgba(239,68,68,.3); color:#f87171; }
+.abtn.no:hover { background:rgba(239,68,68,.2); }
+.abtn:disabled { opacity:.5; cursor:default; }
+
+.chips { display:flex; gap:7px; flex-wrap:wrap; padding:8px 14px 0; flex-shrink:0; }
+.chip { background:var(--s2); border:1px solid var(--border); color:var(--t2); padding:4px 11px; border-radius:20px; font-size:11.5px; cursor:pointer; transition:all .12s; white-space:nowrap; }
+.chip:hover { background:var(--s3); color:var(--t1); border-color:var(--blue); }
+
+.inp-area { padding:10px 14px; border-top:1px solid var(--border); display:flex; gap:9px; align-items:flex-end; flex-shrink:0; }
+.cinp { flex:1; background:var(--s2); border:1px solid var(--border); color:var(--t1); padding:9px 13px; border-radius:var(--r); font-size:13px; font-family:inherit; resize:none; outline:none; transition:border-color .15s; max-height:90px; min-height:38px; }
+.cinp:focus { border-color:var(--blue); }
+.cinp::placeholder { color:var(--t3); }
+.sbtn { width:36px; height:36px; background:var(--blue); border:none; border-radius:var(--r); color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:background .15s; font-size:15px; }
+.sbtn:hover { background:var(--bd); }
+.sbtn:disabled { opacity:.4; cursor:not-allowed; }
+
+/* ── Sidebar ── */
+.sidebar { display:flex; flex-direction:column; gap:11px; overflow-y:auto; min-height:0; }
+.sidebar::-webkit-scrollbar { width:3px; }
+.sidebar::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); overflow:hidden; }
+.card-hdr { padding:10px 14px; border-bottom:1px solid var(--border); font-size:11px; font-weight:600; color:var(--t2); text-transform:uppercase; letter-spacing:.6px; }
+.af { padding:7px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--bs); font-size:12.5px; }
+.af:last-child { border-bottom:none; }
+.fl { color:var(--t3); }
+.fv { font-weight:500; color:var(--t1); font-family:'SF Mono',monospace; font-size:11.5px; }
+.tier { background:rgba(168,85,247,.13); border:1px solid rgba(168,85,247,.3); color:#c084fc; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; font-family:inherit; }
+
+.faq-row { padding:9px 14px; border-bottom:1px solid var(--bs); cursor:pointer; transition:background .1s; display:flex; gap:9px; align-items:flex-start; }
+.faq-row:last-child { border-bottom:none; }
+.faq-row:hover { background:var(--s2); }
+.fq-ico { font-size:13px; flex-shrink:0; margin-top:1px; }
+.fq-ttl { font-size:12px; color:var(--t1); line-height:1.4; }
+.fq-cnt { font-size:11px; color:var(--t3); margin-top:1px; }
+
+/* ── Ticket created card ── */
+.tcc { background:rgba(34,197,94,.07); border:1px solid rgba(34,197,94,.22); border-radius:8px; padding:12px 14px; margin-top:4px; }
+.tcc-hdr { color:var(--green); font-weight:600; margin-bottom:8px; font-size:13px; }
+.tcc-row { display:flex; justify-content:space-between; font-size:12px; padding:2px 0; color:var(--t2); }
+.tcc-val { color:var(--t1); font-weight:500; font-family:'SF Mono',monospace; }
+
+/* ── My Tickets ── */
+.tpanel { flex:1; overflow:hidden; display:flex; flex-direction:column; padding:16px 24px; gap:14px; min-height:0; }
+.tpanel-hdr { display:flex; align-items:flex-start; justify-content:space-between; }
+.tpanel-title { font-size:17px; font-weight:700; }
+.tpanel-sub { font-size:12.5px; color:var(--t3); margin-top:2px; }
+.filters { display:flex; gap:5px; }
+.fbtn { padding:5px 11px; border-radius:var(--rs); font-size:12px; cursor:pointer; border:1px solid var(--border); background:var(--s2); color:var(--t2); transition:all .12s; }
+.fbtn:hover,.fbtn.active { background:var(--s3); color:var(--bb); border-color:var(--blue); }
+.tbl-wrap { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); overflow:auto; flex:1; min-height:0; }
+.tbl-wrap::-webkit-scrollbar { width:3px; height:3px; }
+.tbl-wrap::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+table { width:100%; border-collapse:collapse; }
+thead th { padding:10px 14px; text-align:left; font-size:11px; font-weight:600; color:var(--t3); text-transform:uppercase; letter-spacing:.4px; background:var(--s2); border-bottom:1px solid var(--border); white-space:nowrap; }
+tbody tr { border-bottom:1px solid var(--bs); cursor:pointer; transition:background .1s; }
+tbody tr:last-child { border-bottom:none; }
+tbody tr:hover { background:var(--s2); }
+tbody td { padding:11px 14px; font-size:12.5px; }
+.tid { font-family:'SF Mono',monospace; font-size:11.5px; color:var(--bb); }
+.tsub { font-weight:500; color:var(--t1); }
+.tconn { color:var(--t2); font-size:12px; }
+.sbadge { display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; white-space:nowrap; }
+.sbadge::before { content:''; width:5px; height:5px; border-radius:50%; }
+.s-open { background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.28); color:var(--bb); }
+.s-open::before { background:var(--bb); }
+.s-prog { background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.28); color:var(--yellow); }
+.s-prog::before { background:var(--yellow); }
+.s-res { background:rgba(34,197,94,.08); border:1px solid rgba(34,197,94,.22); color:var(--green); }
+.s-res::before { background:var(--green); }
+.s-cls { background:rgba(100,116,139,.1); border:1px solid rgba(100,116,139,.22); color:var(--t3); }
+.s-cls::before { background:var(--t3); }
+.dc { color:var(--t3); font-size:11.5px; }
+</style>
+</head>
+<body>
+
+<!-- ── API Key Modal ── -->
+<div class="modal-bg" id="keyModal">
+  <div class="modal">
+    <h2>🔑 Configure Claude API Key</h2>
+    <p>This prototype uses Claude AI to answer Fivetran support questions. Enter your Anthropic API key to enable live AI responses — it's stored only in your browser.</p>
+    <label>Anthropic API Key</label>
+    <input type="password" id="keyInput" placeholder="sk-ant-api03-..." autocomplete="off" />
+    <div class="modal-footer">
+      <button class="mbtn secondary" onclick="useDemoMode()">Use Demo Mode</button>
+      <button class="mbtn primary" onclick="saveKey()">Save & Start</button>
+    </div>
+    <div class="modal-note">
+      Key is stored in <code>localStorage</code> — never sent anywhere except <code>api.anthropic.com</code>.<br>
+      Don't have a key? <a href="https://console.anthropic.com" target="_blank">Get one at console.anthropic.com →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header class="hdr">
+  <a class="logo" href="#">
+    <div class="logo-ico">F</div>
+    <span class="logo-txt">Fivetran <span class="logo-sub">/ Support</span></span>
+  </a>
+  <nav class="tabs">
+    <button class="tab active" onclick="switchTab('home',this)">🏠 Home</button>
+    <button class="tab" onclick="switchTab('tickets',this)">🎫 My Tickets<span class="tcnt" id="tcnt">5</span></button>
+  </nav>
+  <div class="hdr-r">
+    <button class="key-btn" onclick="openKeyModal()" title="Configure API Key">⚙️ API Key</button>
+    <div class="notif">🔔</div>
+    <div class="uinfo">
+      <span class="uname">Vandana V.</span>
+      <span class="uemail">vandana@acmecorp.io</span>
+    </div>
+    <div class="av">VV</div>
+  </div>
+</header>
+
+<!-- ══════════════ HOME TAB ══════════════ -->
+<div id="p-home" class="panel active">
+
+  <!-- Banners -->
+  <div class="banners">
+    <div class="banner b-status">
+      <div class="dot"></div>
+      <div>
+        <div class="st-label">All Systems Operational</div>
+        <div class="st-detail">Fivetran Platform · Checked just now</div>
+      </div>
+      <a href="https://status.fivetran.com" target="_blank">status.fivetran.com →</a>
+    </div>
+    <div class="banner b-human">
+      <div class="bh-txt">
+        <div class="lbl">👤 Prefer a human touch?</div>
+        <div class="sub">Our support engineers are standing by</div>
+      </div>
+      <button class="hbtn" onclick="triggerHuman()">I want to talk to a human</button>
+    </div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="grid">
+
+    <!-- Chat -->
+    <div class="chat-wrap">
+      <div class="chat-hdr">
+        <div class="ai-av">🤖</div>
+        <div style="flex:1">
+          <div class="ai-name">Fivetran AI Support</div>
+          <div class="ai-status" id="aiStatus">Online · Ready to help</div>
+        </div>
+        <div class="kb-badge" id="kbBadge">⚡ FivetranKnowledge</div>
+      </div>
+
+      <div class="msgs" id="msgs"></div>
+
+      <div class="chips" id="chips">
+        <span class="chip" onclick="sendChip(this)">My sync is failing</span>
+        <span class="chip" onclick="sendChip(this)">AUTH_FAILURE error</span>
+        <span class="chip" onclick="sendChip(this)">Data not matching</span>
+        <span class="chip" onclick="sendChip(this)">Schema change issues</span>
+        <span class="chip" onclick="sendChip(this)">Connector is broken</span>
+      </div>
+
+      <div class="inp-area">
+        <textarea class="cinp" id="cinp" placeholder="Describe your issue or ask a question…" rows="1"
+          onkeydown="onKey(event)" oninput="resize(this)"></textarea>
+        <button class="sbtn" id="sbtn" onclick="send()">➤</button>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <!-- Account card -->
+      <div class="card">
+        <div class="card-hdr">🏢 Account Details</div>
+        <div class="af"><span class="fl">Account Name</span><span class="fv">Acme Corp</span></div>
+        <div class="af"><span class="fl">Account ID</span><span class="fv">FT-89234</span></div>
+        <div class="af"><span class="fl">Username</span><span class="fv">vandana.v</span></div>
+        <div class="af"><span class="fl">Group ID</span><span class="fv">grp_7f9a2c</span></div>
+        <div class="af"><span class="fl">Plan</span><span class="tier">Enterprise</span></div>
+        <div class="af"><span class="fl">Region</span><span class="fv">US-East</span></div>
+      </div>
+
+      <!-- FAQ -->
+      <div class="card">
+        <div class="card-hdr">📚 Top Articles Today</div>
+        <div class="faq-row" onclick="sendChip(this)">
+          <span class="fq-ico">🔑</span>
+          <div><div class="fq-ttl">How to re-authenticate a broken connector</div><div class="fq-cnt">1,247 views today</div></div>
+        </div>
+        <div class="faq-row" onclick="sendChip(this)">
+          <span class="fq-ico">⏱️</span>
+          <div><div class="fq-ttl">Understanding sync frequency and lag</div><div class="fq-cnt">982 views today</div></div>
+        </div>
+        <div class="faq-row" onclick="sendChip(this)">
+          <span class="fq-ico">☁️</span>
+          <div><div class="fq-ttl">Salesforce API limits and Fivetran</div><div class="fq-cnt">847 views today</div></div>
+        </div>
+        <div class="faq-row" onclick="sendChip(this)">
+          <span class="fq-ico">🔄</span>
+          <div><div class="fq-ttl">How to approve pending schema changes</div><div class="fq-cnt">723 views today</div></div>
+        </div>
+        <div class="faq-row" onclick="sendChip(this)">
+          <span class="fq-ico">🔐</span>
+          <div><div class="fq-ttl">Snowflake destination: permission setup</div><div class="fq-cnt">651 views today</div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ MY TICKETS TAB ══════════════ -->
+<div id="p-tickets" class="panel">
+  <div class="tpanel">
+    <div class="tpanel-hdr">
+      <div>
+        <div class="tpanel-title">My Tickets</div>
+        <div class="tpanel-sub">All support requests linked to your account</div>
+      </div>
+      <div class="filters">
+        <button class="fbtn active" onclick="filter('all',this)">All (5)</button>
+        <button class="fbtn" onclick="filter('open',this)">Open</button>
+        <button class="fbtn" onclick="filter('prog',this)">In Progress</button>
+        <button class="fbtn" onclick="filter('res',this)">Resolved</button>
+        <button class="fbtn" onclick="filter('cls',this)">Closed</button>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Ticket #</th><th>Subject</th><th>Connector</th>
+            <th>Status</th><th>Created</th><th>Last Updated</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Config ─────────────────────────────────────────────────────────
+const CLAUDE_MODEL = 'claude-opus-4-5';
+const SYSTEM_PROMPT = `You are an expert Fivetran support engineer. You help customers troubleshoot and resolve data pipeline issues quickly and clearly.
+
+When responding:
+- Be concise, direct, and actionable
+- Use numbered steps for procedures
+- Highlight error codes in backticks
+- Reference Fivetran docs paths where relevant (e.g. fivetran.com/docs/...)
+- For auth errors: always ask connector type + destination
+- For sync failures: ask for the exact error message and connector name
+- Keep initial responses focused; ask 1-2 clarifying questions max
+- If the issue needs human escalation (billing, account access, persistent bugs), say so clearly
+
+Common areas you cover: connector auth failures, sync lag, schema changes, destination permissions, dbt transformations, API rate limits, incremental sync issues, historical re-sync, webhook delivery, SSO/RBAC.`;
+
+// ── State ─────────────────────────────────────────────────────────
+let apiKey = localStorage.getItem('ft_claude_key') || '';
+let demoMode = localStorage.getItem('ft_demo_mode') === 'true';
+let busy = false;
+let conversation = []; // [{role, content}]
+
+const now = () => new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+
+// ── Init ─────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  renderTickets(tickets);
+  if (!apiKey && !demoMode) {
+    document.getElementById('keyModal').classList.remove('hidden');
+  } else {
+    initChat();
+  }
+});
+
+function initChat() {
+  updateStatusBar();
+  conversation = [];
+  setTimeout(() => {
+    addMsg('agent', `👋 Hi! I'm Fivetran AI Support. I can help you troubleshoot connector issues, sync failures, schema changes, and more.<br><br>What's going on today?`);
+  }, 300);
+}
+
+function updateStatusBar() {
+  const status = document.getElementById('aiStatus');
+  const badge = document.getElementById('kbBadge');
+  if (demoMode) {
+    status.textContent = 'Demo Mode · Scripted responses';
+    status.className = 'ai-status no-key';
+    badge.textContent = '🔶 Demo Mode';
+    badge.style.background = 'rgba(245,158,11,.13)';
+    badge.style.borderColor = 'rgba(245,158,11,.3)';
+    badge.style.color = 'var(--yellow)';
+  } else {
+    status.textContent = 'Online · Powered by Claude';
+    status.className = 'ai-status';
+    badge.textContent = '⚡ Claude AI';
+  }
+}
+
+// ── Key Modal ─────────────────────────────────────────────────────
+function openKeyModal() {
+  document.getElementById('keyInput').value = apiKey;
+  document.getElementById('keyModal').classList.remove('hidden');
+}
+
+function saveKey() {
+  const val = document.getElementById('keyInput').value.trim();
+  if (!val.startsWith('sk-ant')) {
+    alert('Please enter a valid Anthropic API key (starts with sk-ant...)');
+    return;
+  }
+  apiKey = val;
+  demoMode = false;
+  localStorage.setItem('ft_claude_key', apiKey);
+  localStorage.removeItem('ft_demo_mode');
+  document.getElementById('keyModal').classList.add('hidden');
+  if (conversation.length === 0) initChat();
+  else updateStatusBar();
+}
+
+function useDemoMode() {
+  demoMode = true;
+  apiKey = '';
+  localStorage.setItem('ft_demo_mode', 'true');
+  localStorage.removeItem('ft_claude_key');
+  document.getElementById('keyModal').classList.add('hidden');
+  if (conversation.length === 0) initChat();
+  else updateStatusBar();
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('p-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ── Message helpers ───────────────────────────────────────────────
+function addMsg(who, html) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + who;
+  el.innerHTML = `
+    <div class="mav">${who==='agent'?'AI':'VV'}</div>
+    <div class="mc">
+      <div class="mb">${html}</div>
+      <div class="mt">${now()}</div>
+    </div>`;
+  document.getElementById('msgs').appendChild(el);
+  scrollMsgs();
+  return el;
+}
+
+function scrollMsgs() {
+  const m = document.getElementById('msgs');
+  m.scrollTop = m.scrollHeight;
+}
+
+function showTyping() {
+  const el = document.createElement('div');
+  el.id = 'typ'; el.className = 'typing';
+  el.innerHTML = `<div class="mav" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff">AI</div>
+    <div class="tbubble"><div class="td"></div><div class="td"></div><div class="td"></div></div>`;
+  document.getElementById('msgs').appendChild(el);
+  scrollMsgs();
+}
+function hideTyping() { const t=document.getElementById('typ'); if(t) t.remove(); }
+
+function renderMd(raw) {
+  return raw
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/\n\n/g,'<br><br>')
+    .replace(/\n/g,'<br>')
+    .replace(/^(\d+)\. /gm,'<br>$1. ')
+    .replace(/^- /gm,'<br>• ');
+}
+
+function sourcePill(label, icon='📄', color='rgba(59,130,246,.15)', border='rgba(59,130,246,.35)', text='#60a5fa') {
+  return `<div class="spill" style="background:${color};border-color:${border};color:${text}">
+    <span class="ck">✓</span><span>${icon} ${label}</span></div>`;
+}
+
+// ── Claude API ────────────────────────────────────────────────────
+async function callClaude(userMsg) {
+  conversation.push({ role: 'user', content: userMsg });
+  setBusy(true);
+  showTyping();
+
+  // Show search animation briefly
+  await new Promise(r => setTimeout(r, 600));
+  hideTyping();
+  const agentEl = addMsg('agent', '');
+  const mb = agentEl.querySelector('.mb');
+
+  // Show FivetranKnowledge search pill
+  const searchTerms = extractSearchTerms(userMsg);
+  let pillsHtml = searchTerms.map(t => sourcePill(`Searching FivetranDocs: "${t}"`, '📄')).join('');
+  mb.innerHTML = pillsHtml;
+  scrollMsgs();
+
+  await new Promise(r => setTimeout(r, 800));
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: conversation,
+        stream: true
+      })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    }
+
+    let fullText = '';
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let leftover = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      leftover += decoder.decode(value, { stream: true });
+      const lines = leftover.split('\n');
+      leftover = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') break;
+        try {
+          const evt = JSON.parse(data);
+          if (evt.type === 'content_block_delta' && evt.delta?.text) {
+            fullText += evt.delta.text;
+            mb.innerHTML = pillsHtml + (fullText ? '<br>' + renderMd(fullText) : '');
+            scrollMsgs();
+          }
+        } catch {}
+      }
+    }
+
+    conversation.push({ role: 'assistant', content: fullText });
+
+    // Check if we should offer ticket creation
+    if (looksLikeEscalation(fullText)) {
+      appendEscalationActions(agentEl, userMsg);
+    }
+
+  } catch (err) {
+    mb.innerHTML = `⚠️ <strong>API error:</strong> ${renderMd(err.message)}<br><small>Check your API key or <button onclick="openKeyModal()" style="background:none;border:none;color:var(--bb);cursor:pointer;font-size:11px;padding:0">update it here</button>.</small>`;
+    conversation.pop(); // remove failed message
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ── Demo Mode ─────────────────────────────────────────────────────
+const DEMO_RESPONSES = [
+  { match: /auth|credential|password|oauth|token/i, source: 'zendesk', label: 'Zendesk Tickets: "auth failure connector"',
+    text: `**Authentication failures** are one of the most common Fivetran issues. Here's how to resolve it:\n\n1. **Re-authenticate the connector** — Go to Fivetran Dashboard → Connectors → your connector → click "Re-authorize"\n2. **Check for expired credentials** — API tokens, service accounts, and OAuth sessions can expire. Regenerate if needed.\n3. **Verify IP allowlisting** — Fivetran syncs from fixed IPs. Check if your source has restricted access (docs: \`fivetran.com/docs/using-fivetran/ips\`)\n4. **Service account permissions** — Ensure the service account hasn't had permissions revoked\n\nWhich connector are you seeing this on?` },
+  { match: /sync|fail|stuck|not working|broken/i, source: 'docs', label: 'FivetranDocs: "sync failure troubleshooting"',
+    text: `Let me help you troubleshoot this sync failure. A few quick questions:\n\n1. What **connector** is failing? (e.g. Salesforce, HubSpot, PostgreSQL)\n2. What's the **exact error message** shown in the dashboard?\n3. When did it last sync successfully?\n\nIn the meantime, try:\n- **Force a manual sync** to get a fresh error message\n- Check **Connector Health** tab for recent errors\n- Verify the source system is accessible and hasn't had recent changes` },
+  { match: /schema|column|table|field/i, source: 'slab', label: 'Slab Runbooks: "schema change handling"',
+    text: `Schema changes need to be **approved** in Fivetran before they sync. Here's the flow:\n\n1. Go to **Dashboard → Connectors → your connector → Schema**\n2. Look for columns/tables marked as "blocked" or with a ⚠️ pending badge\n3. **Approve** the changes to allow them to sync\n4. Optionally **block** columns you don't want synced\n\nNote: If a source column was deleted or renamed, Fivetran will mark it as `DELETED` in the destination — it won't be removed automatically to prevent data loss.\n\nAre you seeing a specific schema error, or looking to approve pending changes?` },
+  { match: /human|engineer|escalat|ticket|agent/i, source: 'docs', label: 'Support routing',
+    text: `Of course — I'll create a support ticket for you right now. A support engineer will be in touch within **2 business hours** (Enterprise SLA).\n\nTo make sure they have everything they need, can you confirm:\n- **Connector name** and type\n- **Error message** (copy from dashboard)\n- **Account ID** (shown in the sidebar)\n\nI'll include this conversation in the ticket so you don't have to repeat yourself.` },
+];
+
+async function callDemo(userMsg) {
+  setBusy(true);
+  showTyping();
+  await new Promise(r => setTimeout(r, 1200));
+  hideTyping();
+
+  const match = DEMO_RESPONSES.find(r => r.match.test(userMsg)) || {
+    source: 'docs',
+    label: `FivetranDocs: "${userMsg.slice(0,30)}"`,
+    text: `Thanks for reaching out! I can help with that.\n\nTo point you in the right direction, could you tell me:\n1. Which **connector** or **destination** is affected?\n2. What **error message** are you seeing (if any)?\n3. When did you first notice this issue?\n\nWith those details I can give you specific steps.`
+  };
+
+  const sourceColors = {
+    docs:    { color: 'rgba(59,130,246,.15)', border: 'rgba(59,130,246,.35)', text: '#60a5fa', icon: '📄' },
+    zendesk: { color: 'rgba(34,197,94,.1)',   border: 'rgba(34,197,94,.35)',  text: '#4ade80', icon: '🎫' },
+    slab:    { color: 'rgba(168,85,247,.1)',  border: 'rgba(168,85,247,.35)', text: '#c084fc', icon: '📚' },
+  };
+  const sc = sourceColors[match.source];
+  const pill = sourcePill(match.label, sc.icon, sc.color, sc.border, sc.text);
+
+  const agentEl = addMsg('agent', pill + '<br>' + renderMd(match.text));
+  conversation.push({ role: 'user', content: userMsg });
+  conversation.push({ role: 'assistant', content: match.text });
+
+  if (/human|engineer|escalat|ticket|agent/i.test(userMsg)) {
+    appendEscalationActions(agentEl, userMsg);
+  }
+  setBusy(false);
+}
+
+// ── Escalation buttons ────────────────────────────────────────────
+function looksLikeEscalation(text) {
+  return /escalat|human|ticket|support engineer|create.*ticket/i.test(text);
+}
+
+function appendEscalationActions(el, origMsg) {
+  const acts = document.createElement('div');
+  acts.className = 'acts';
+  acts.innerHTML = `
+    <button class="abtn yes" onclick="createTicket(this, '${origMsg.replace(/'/g,"\\'")}')">✅ Yes, create a ticket</button>
+    <button class="abtn no" onclick="dismissTicket(this)">❌ No, I'll keep trying</button>`;
+  el.querySelector('.mc').appendChild(acts);
+}
+
+function createTicket(btn, subject) {
+  btn.closest('.acts').querySelectorAll('button').forEach(b => b.disabled = true);
+  const ticketId = 'TKT-' + (20300 + Math.floor(Math.random()*100));
+  const tcc = `
+    <div class="tcc">
+      <div class="tcc-hdr">✅ Ticket Created</div>
+      <div class="tcc-row"><span>Ticket ID</span><span class="tcc-val">${ticketId}</span></div>
+      <div class="tcc-row"><span>Priority</span><span class="tcc-val">High</span></div>
+      <div class="tcc-row"><span>SLA</span><span class="tcc-val">2 business hours</span></div>
+      <div class="tcc-row"><span>Status</span><span class="tcc-val">Open</span></div>
+    </div>`;
+  btn.closest('.mc').insertAdjacentHTML('beforeend', tcc);
+  addTicketRow(ticketId, subject || 'New support request from chat');
+  scrollMsgs();
+}
+
+function dismissTicket(btn) {
+  btn.closest('.acts').querySelectorAll('button').forEach(b => b.disabled = true);
+  addMsg('agent', 'No problem! Feel free to keep chatting. I\'m here if you need anything else.');
+}
+
+// ── Search term extraction ────────────────────────────────────────
+function extractSearchTerms(msg) {
+  const words = msg.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/);
+  const stopwords = new Set(['the','a','an','is','it','my','i','to','in','on','for','of','and','or','not','with','this','that','what','how','why','when','does','do','can','could','would','should']);
+  const keywords = words.filter(w => w.length > 3 && !stopwords.has(w)).slice(0, 3);
+  return keywords.length ? [keywords.join(' ')] : [msg.slice(0, 30)];
+}
+
+// ── Trigger human ────────────────────────────────────────────────
+window.triggerHuman = () => {
+  document.getElementById('cinp').value = 'I want to talk to a human support engineer';
+  send();
+};
+
+// ── Send ─────────────────────────────────────────────────────────
+async function send() {
+  const inp = document.getElementById('cinp');
+  const msg = inp.value.trim();
+  if (!msg || busy) return;
+  inp.value = ''; resize(inp);
+  document.getElementById('chips').style.display = 'none';
+  addMsg('user', msg.replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+  if (demoMode) {
+    await callDemo(msg);
+  } else if (apiKey) {
+    await callClaude(msg);
+  } else {
+    openKeyModal();
+  }
+}
+
+function sendChip(el) {
+  const text = el.querySelector('.fq-ttl')?.textContent || el.textContent;
+  document.getElementById('cinp').value = text.trim();
+  send();
+}
+function onKey(e) { if (e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();} }
+function resize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,90)+'px'; }
+
+function setBusy(val) {
+  busy = val;
+  document.getElementById('sbtn').disabled = val;
+  document.getElementById('cinp').disabled = val;
+}
+
+// ── Tickets ───────────────────────────────────────────────────────
+const tickets = [
+  { id:'TKT-20241', sub:'Salesforce → Snowflake AUTH_FAILURE after password rotation', conn:'Salesforce → Snowflake', s:'res', cr:'Jan 15, 2025', up:'Jan 16, 2025' },
+  { id:'TKT-20198', sub:'BigQuery destination PERMISSION_DENIED on newly added tables', conn:'PostgreSQL → BigQuery', s:'prog', cr:'Feb 28, 2025', up:'Mar 1, 2025' },
+  { id:'TKT-20189', sub:'HubSpot connector sync stuck for over 6 hours', conn:'HubSpot → Snowflake', s:'open', cr:'Mar 20, 2025', up:'Mar 20, 2025' },
+  { id:'TKT-20167', sub:'Schema changes not propagating to destination after approval', conn:'MySQL → Redshift', s:'res', cr:'Dec 3, 2024', up:'Dec 4, 2024' },
+  { id:'TKT-20089', sub:'dbt transformation errors after upstream model was renamed', conn:'dbt Models', s:'cls', cr:'Oct 2, 2024', up:'Oct 5, 2024' },
+];
+
+const SM = { open:['s-open','Open'], prog:['s-prog','In Progress'], res:['s-res','Resolved'], cls:['s-cls','Closed'] };
+
+function renderTickets(list) {
+  const b = document.getElementById('tbody');
+  b.innerHTML = '';
+  list.forEach(t => {
+    const [cls,lbl] = SM[t.s];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="tid">${t.id}</span></td>
+      <td><span class="tsub">${t.sub}</span></td>
+      <td><span class="tconn">${t.conn}</span></td>
+      <td><span class="sbadge ${cls}">${lbl}</span></td>
+      <td class="dc">${t.cr}</td>
+      <td class="dc">${t.up}</td>`;
+    b.appendChild(tr);
+  });
+}
+
+function filter(f, btn) {
+  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const filtered = f==='all' ? tickets : tickets.filter(t => t.s===f);
+  renderTickets(filtered);
+}
+
+function addTicketRow(id, sub) {
+  tickets.unshift({ id, sub: sub.length>65?sub.slice(0,62)+'…':sub, conn:'Chat', s:'open',
+    cr:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}), up:'Just now' });
+  renderTickets(tickets);
+  document.getElementById('tcnt').textContent = tickets.length;
+}
+</script>
+</body>
+</html>
