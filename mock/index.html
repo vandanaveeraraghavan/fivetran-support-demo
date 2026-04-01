@@ -155,10 +155,12 @@
 
   /* Typing indicator */
   .typing-indicator { display: flex; gap: 10px; align-items: flex-end; padding: 0 24px; margin-bottom: 12px; }
-  .typing-dots {
-    display: flex; gap: 4px; align-items: center;
+  .typing-bubble {
+    display: flex; flex-direction: column; gap: 6px;
     background: #f3f4f6; padding: 12px 16px; border-radius: 12px; border-top-left-radius: 4px;
+    max-width: 280px;
   }
+  .typing-dots { display: flex; gap: 4px; align-items: center; }
   .typing-dots span {
     width: 7px; height: 7px; border-radius: 50%; background: #9ca3af;
     animation: bounce 1.3s ease-in-out infinite;
@@ -166,6 +168,7 @@
   .typing-dots span:nth-child(2) { animation-delay: .15s; }
   .typing-dots span:nth-child(3) { animation-delay: .3s; }
   @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+  #typing-text { font-size: 12px; color: #6b7280; font-style: italic; min-height: 16px; transition: opacity 0.3s; }
 
   /* Quick chips in chat */
   .quick-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 24px 16px; }
@@ -257,6 +260,14 @@
     padding: 7px 16px; border-radius: 7px; font-size: 13px; font-weight: 600;
     border: 2px solid #e5e7eb; background: #fff; cursor: pointer; transition: all .15s;
   }
+  .dynamic-fields { margin-top: 0; }
+  .dynamic-fields .form-group { margin-bottom: 14px; }
+  .field-text-input {
+    width: 100%; padding: 9px 12px; border: 1.5px solid #e5e7eb; border-radius: 8px;
+    font-size: 14px; color: #111; transition: border-color .15s; box-sizing: border-box;
+  }
+  .field-text-input:focus { outline: none; border-color: #2563eb; }
+
   .sev-chip[data-sev="P1"] { color: #dc2626; }
   .sev-chip[data-sev="P2"] { color: #ea580c; }
   .sev-chip[data-sev="P3"] { color: #ca8a04; }
@@ -528,8 +539,9 @@
       <!-- Typing indicator (hidden by default) -->
       <div id="typing-indicator" class="typing-indicator hidden">
         <div class="msg-avatar" style="background:#2563eb;color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">AI</div>
-        <div class="typing-dots">
-          <span></span><span></span><span></span>
+        <div class="typing-bubble">
+          <div class="typing-dots"><span></span><span></span><span></span></div>
+          <div id="typing-text"></div>
         </div>
       </div>
 
@@ -632,47 +644,8 @@
       </div>
     </div>
 
-    <!-- Connector + Destination row -->
-    <div class="form-row">
-      <div class="form-group">
-        <label>Connector Type</label>
-        <select id="ticket-connector">
-          <option value="">Select connector…</option>
-          <option>Salesforce</option><option>HubSpot</option><option>Google Ads</option>
-          <option>Facebook Ads</option><option>Stripe</option><option>Shopify</option>
-          <option>Zendesk</option><option>Jira</option><option>Postgres</option>
-          <option>MySQL</option><option>MongoDB</option><option>S3</option>
-          <option>BigQuery (source)</option><option>Other</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Destination Type</label>
-        <select id="ticket-destination">
-          <option value="">Select destination…</option>
-          <option>BigQuery</option><option>Snowflake</option><option>Redshift</option>
-          <option>Databricks</option><option>Azure Synapse</option><option>S3</option>
-          <option>Fivetran Managed Storage</option><option>Other</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Classification -->
-    <div class="form-group">
-      <label>Issue Category</label>
-      <select id="ticket-category">
-        <option value="">Select category…</option>
-        <option>Sync / Replication</option>
-        <option>Authentication / Permissions</option>
-        <option>Schema / Data Quality</option>
-        <option>Transformation / dbt</option>
-        <option>HVR / Log-based replication</option>
-        <option>Activations</option>
-        <option>Billing / Pricing</option>
-        <option>Performance</option>
-        <option>Setup / Configuration</option>
-        <option>Other</option>
-      </select>
-    </div>
+    <!-- Dynamic fields per product type -->
+    <div id="dynamic-fields" class="dynamic-fields"></div>
 
     <!-- Description -->
     <div class="form-group">
@@ -741,11 +714,27 @@ let selectedSeverity = null;
 let attachedFile = null;
 let isBusy = false;
 let escalationMode = 'escalate'; // 'escalate' | 'human'
+let inactivityTimer5 = null;
+let inactivityTimer10 = null;
+let needsTimeFlag = false;
 
 // ═══════════════════════════════════════════════════════
 //  PORTAL NAVIGATION
 // ═══════════════════════════════════════════════════════
 function openAiAgent() {
+  // Reset conversation state for fresh session
+  messageHistory = [];
+  sessionId = null;
+  selectedSeverity = null;
+  selectedProductType = '';
+  document.querySelectorAll('.sev-chip').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('.pt-chip').forEach(el => el.classList.remove('selected'));
+  document.getElementById('resolution-bar').classList.add('hidden');
+  document.getElementById('csat-area').classList.add('hidden');
+  const msgs = document.getElementById('chat-messages');
+  msgs.innerHTML = '<!-- Messages rendered here by JS -->';
+  resetInactivityTimers();
+
   const el = document.getElementById('ai-agent');
   el.classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -756,6 +745,7 @@ function openAiAgent() {
 }
 
 function closeAiAgent() {
+  resetInactivityTimers();
   document.getElementById('ai-agent').classList.remove('open');
   document.body.style.overflow = '';
   closeTicketPanel();
@@ -818,6 +808,29 @@ function markdownToHtml(text) {
 }
 
 // ═══════════════════════════════════════════════════════
+//  COMPLEXITY DETECTION — set upfront expectations
+// ═══════════════════════════════════════════════════════
+const COMPLEX_PATTERNS = [
+  /\b(api|sdk|oauth|authentication|certificate|ssl|tls|firewall|vpc|iam|rbac|permission|credential)\b/i,
+  /\b(config(ure|uration)?|setup|install|deploy(ment)?|migrate|migration)\b/i,
+  /\b(error code|stack trace|log|exception|traceback|diagnos|troubleshoot)\b/i,
+  /\b(how (do|does|can|to)|explain|what is|what are|difference between|compare|best practice)\b/i,
+  /\b(hvr|hva|hybrid|activations|census|reverse etl)\b/i,
+];
+const COMPLEX_OPENERS = [
+  "Good question — this one's a bit involved so give me a moment to go through it properly.",
+  "On it! This might take me a minute or two — I want to make sure I give you an accurate answer rather than a quick one.",
+  "These are detailed questions — let me review the relevant information carefully before responding.",
+  "Let me dig into this properly. It might take a couple of minutes, but I'd rather be thorough than fast.",
+];
+
+function isComplexQuery(msg) {
+  const wordCount = msg.trim().split(/\s+/).length;
+  if (wordCount > 20) return true;
+  return COMPLEX_PATTERNS.some(p => p.test(msg));
+}
+
+// ═══════════════════════════════════════════════════════
 //  SEND MESSAGE
 // ═══════════════════════════════════════════════════════
 async function sendMessage() {
@@ -830,7 +843,17 @@ async function sendMessage() {
   appendMessage('user', text);
   hideQuickChips();
   document.getElementById('resolution-bar').classList.add('hidden');
-  await callAI(text);
+  const userMessage = text;
+  resetInactivityTimers();
+  needsTimeFlag = false;
+  // Check if customer indicated they need time
+  if (/need (time|a moment|to check)|checking|gathering|be right back|brb|let me look/i.test(userMessage)) {
+    needsTimeFlag = true;
+  }
+  if (isComplexQuery(userMessage)) {
+    appendMessage('agent', COMPLEX_OPENERS[Math.floor(Math.random() * COMPLEX_OPENERS.length)]);
+  }
+  await callAI(userMessage);
 }
 
 async function sendQuickMessage(text) {
@@ -838,7 +861,14 @@ async function sendQuickMessage(text) {
   appendMessage('user', text);
   hideQuickChips();
   document.getElementById('resolution-bar').classList.add('hidden');
-  await callAI(text);
+  const userMessage = text;
+  resetInactivityTimers();
+  needsTimeFlag = false;
+  // Check if customer indicated they need time
+  if (/need (time|a moment|to check)|checking|gathering|be right back|brb|let me look/i.test(userMessage)) {
+    needsTimeFlag = true;
+  }
+  await callAI(userMessage);
 }
 
 function hideQuickChips() {
@@ -919,6 +949,7 @@ async function callAI(userMessage) {
       if (messageHistory.filter(m => m.role === 'agent').length >= 1) {
         document.getElementById('resolution-bar').classList.remove('hidden');
       }
+      startInactivityTimers();
     }
 
   } catch (err) {
@@ -1004,10 +1035,41 @@ With those details I can give you a much more targeted fix.`;
 // ═══════════════════════════════════════════════════════
 //  TYPING INDICATOR
 // ═══════════════════════════════════════════════════════
+const THINKING_MSGS = [
+  "Looking into this for you…",
+  "Pulling up the relevant docs…",
+  "Let me check what I know about this…",
+  "Going through the details carefully…",
+  "Cross-referencing a few things…",
+  "Almost there, reviewing the specifics…",
+  "This one needs a proper look — bear with me…",
+  "Checking the latest on this…",
+];
+let _typingMsgInterval = null;
+let _typingMsgIdx = 0;
+
 function showTyping(show) {
   const el = document.getElementById('typing-indicator');
+  const textEl = document.getElementById('typing-text');
   el.classList.toggle('hidden', !show);
-  if (show) document.getElementById('chat-messages').scrollTop = 9999;
+  if (show) {
+    _typingMsgIdx = 0;
+    textEl.textContent = THINKING_MSGS[0];
+    clearInterval(_typingMsgInterval);
+    _typingMsgInterval = setInterval(() => {
+      _typingMsgIdx = (_typingMsgIdx + 1) % THINKING_MSGS.length;
+      textEl.style.opacity = '0';
+      setTimeout(() => {
+        textEl.textContent = THINKING_MSGS[_typingMsgIdx];
+        textEl.style.opacity = '1';
+      }, 150);
+    }, 3500);
+    document.getElementById('chat-messages').scrollTop = 9999;
+  } else {
+    clearInterval(_typingMsgInterval);
+    _typingMsgInterval = null;
+    textEl.textContent = '';
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1070,6 +1132,43 @@ function closeTicketPanel() {
   selectedSeverity = null;
   document.querySelectorAll('.pt-chip').forEach(el => el.classList.remove('selected'));
   document.querySelectorAll('.sev-chip').forEach(el => el.classList.remove('selected'));
+  document.getElementById('dynamic-fields').innerHTML = '';
+}
+
+function resetInactivityTimers() {
+  clearTimeout(inactivityTimer5);
+  clearTimeout(inactivityTimer10);
+  inactivityTimer5 = null;
+  inactivityTimer10 = null;
+}
+
+function startInactivityTimers() {
+  resetInactivityTimers();
+  needsTimeFlag = false;
+
+  inactivityTimer5 = setTimeout(() => {
+    if (isBusy) return;
+    // Natural check-in — vary the message
+    const msgs = [
+      "Still there? No rush — I'll be here whenever you're ready to continue.",
+      "Just checking in — take your time. Pick up whenever it suits you.",
+      "Hey, still around? Happy to keep going whenever you're ready.",
+    ];
+    appendMessage('agent', msgs[Math.floor(Math.random() * msgs.length)]);
+
+    // Start 10-min timer from this point
+    inactivityTimer10 = setTimeout(() => {
+      if (isBusy) return;
+      // Check if context suggests customer is gathering info
+      const lastAI = [...messageHistory].reverse().find(m => m.role === 'agent')?.text || '';
+      const waitPattern = /check|look into|gather|dig into|investigate|find out|get back|let me know|need (a moment|some time|to check)/i;
+      if (needsTimeFlag || waitPattern.test(lastAI)) return; // Don't abandon
+
+      appendMessage('agent', "It looks like you may have stepped away — no worries at all! I'll leave things here. Come back any time and we can pick right back up. I haven't created a support ticket.");
+      document.getElementById('resolution-bar').classList.add('hidden');
+      resetInactivityTimers();
+    }, 5 * 60 * 1000);
+  }, 5 * 60 * 1000);
 }
 
 function extractSubject() {
@@ -1090,6 +1189,83 @@ function selectProductType(pt) {
   selectedProductType = pt;
   document.querySelectorAll('.pt-chip').forEach(el => {
     el.classList.toggle('selected', el.dataset.pt === pt);
+  });
+  renderProductFields(pt);
+}
+
+const CONNECTORS = ['Salesforce','HubSpot','Google Ads','Facebook Ads','Stripe','Shopify',
+  'GitHub','Zendesk','Jira','Slack','Intercom','Marketo','PostgreSQL','MySQL',
+  'SQL Server','Oracle','MongoDB','Google Analytics','NetSuite','Workday','Other'];
+const DESTINATIONS = ['BigQuery','Snowflake','Redshift','Databricks','Azure Synapse',
+  'S3','GCS','PostgreSQL','MySQL','SQL Server','Oracle','Other'];
+
+const PRODUCT_FIELDS = {
+  Fivetran: [
+    { id: 'dyn-connector', label: 'Connector Type', type: 'select', required: true,  options: CONNECTORS },
+    { id: 'dyn-destination',label: 'Destination Type',type:'select',required: true,  options: DESTINATIONS },
+    { id: 'dyn-category',  label: 'Category',        type: 'select', required: false,
+      options: ['Connectivity','Data quality','Performance','Setup & configuration','Transformations','Billing & MAR','Other'] },
+  ],
+  HVR: [
+    { id: 'dyn-source',  label: 'Source Database',  type: 'select', required: true,
+      options: ['Oracle','SQL Server','PostgreSQL','MySQL','SAP HANA','DB2','Teradata','Other'] },
+    { id: 'dyn-target',  label: 'Target Database',  type: 'select', required: true,
+      options: ['Snowflake','BigQuery','Redshift','Databricks','Azure Synapse','Oracle','SQL Server','Other'] },
+    { id: 'dyn-hvr-version', label: 'HVR Version', type: 'text',   required: false, placeholder: 'e.g. 6.1.2' },
+    { id: 'dyn-hvr-env', label: 'Environment',     type: 'select', required: false,
+      options: ['Cloud-managed','On-premises','Hybrid'] },
+    { id: 'dyn-category',label: 'Category',         type: 'select', required: false,
+      options: ['Replication lag','Connection failure','Schema change','Authentication','Performance','Setup','Other'] },
+  ],
+  HVA: [
+    { id: 'dyn-source',  label: 'Source System',    type: 'select', required: true,
+      options: ['Oracle','SQL Server','SAP','PostgreSQL','MySQL','DB2','Other'] },
+    { id: 'dyn-target',  label: 'Target System',    type: 'select', required: true,
+      options: ['Snowflake','BigQuery','Redshift','Databricks','Azure Synapse','Other'] },
+    { id: 'dyn-agent-version', label: 'Agent Version', type: 'text', required: false, placeholder: 'e.g. 2.3.1' },
+    { id: 'dyn-category',label: 'Category',         type: 'select', required: false,
+      options: ['Replication failure','Schema drift','Latency','Authentication','Setup','Other'] },
+  ],
+  'Hybrid Deployment': [
+    { id: 'dyn-connector',   label: 'Connector Type',    type: 'select', required: true,  options: CONNECTORS },
+    { id: 'dyn-destination', label: 'Destination Type',  type: 'select', required: true,  options: DESTINATIONS },
+    { id: 'dyn-agent-version', label: 'Agent Version',   type: 'text',   required: false, placeholder: 'e.g. 1.4.0' },
+    { id: 'dyn-region',      label: 'Deployment Region', type: 'select', required: false,
+      options: ['US East','US West','EU West','EU Central','AP Southeast','AP Northeast','Other'] },
+    { id: 'dyn-category',    label: 'Category',          type: 'select', required: false,
+      options: ['Agent connectivity','Sync failure','Schema issue','Performance','Setup','Other'] },
+  ],
+  Activations: [
+    { id: 'dyn-source',    label: 'Source Warehouse',  type: 'select', required: true,
+      options: ['Snowflake','BigQuery','Redshift','Databricks','Other'] },
+    { id: 'dyn-destination',label: 'Destination',      type: 'select', required: true,
+      options: ['Salesforce','HubSpot','Marketo','Google Ads','Facebook Ads','Intercom','Zendesk','LinkedIn Ads','Other'] },
+    { id: 'dyn-sync-type', label: 'Sync Type',         type: 'select', required: false,
+      options: ['Full sync','Incremental','Mirror'] },
+    { id: 'dyn-category',  label: 'Category',          type: 'select', required: false,
+      options: ['Sync failure','Field mapping','Model error','Authentication','Performance','Record matching','Other'] },
+  ],
+};
+
+function renderProductFields(pt) {
+  const container = document.getElementById('dynamic-fields');
+  container.innerHTML = '';
+  if (!pt || !PRODUCT_FIELDS[pt]) return;
+  PRODUCT_FIELDS[pt].forEach(field => {
+    const group = document.createElement('div');
+    group.className = 'form-group';
+    const req = field.required ? ' <span style="color:#ef4444">*</span>' : '';
+    let input;
+    if (field.type === 'select') {
+      input = `<select id="${field.id}" class="form-select" ${field.required ? 'required' : ''}>
+        <option value="">Select…</option>
+        ${field.options.map(o => `<option>${o}</option>`).join('')}
+      </select>`;
+    } else {
+      input = `<input type="text" id="${field.id}" class="field-text-input" placeholder="${field.placeholder || ''}" ${field.required ? 'required' : ''}>`;
+    }
+    group.innerHTML = `<label>${field.label}${req}</label>${input}`;
+    container.appendChild(group);
   });
 }
 
@@ -1125,15 +1301,26 @@ async function submitTicket() {
   btn.disabled = true;
   btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Creating ticket…`;
 
+  // Collect dynamic fields
+  const dynFields = {};
+  const container = document.getElementById('dynamic-fields');
+  container.querySelectorAll('select, input').forEach(el => {
+    if (el.value) dynFields[el.id.replace('dyn-', '')] = el.value;
+  });
+  // Validate required dynamic fields
+  const requiredDyn = (PRODUCT_FIELDS[selectedProductType] || []).filter(f => f.required);
+  for (const f of requiredDyn) {
+    const el = document.getElementById(f.id);
+    if (!el || !el.value) { alert(`Please fill in: ${f.label}`); return; }
+  }
+
   const payload = {
     subject,
     description,
     email,
     severity: selectedSeverity,
     productType: selectedProductType,
-    connector: document.getElementById('ticket-connector').value,
-    destination: document.getElementById('ticket-destination').value,
-    category: document.getElementById('ticket-category').value,
+    ...dynFields,
     tag: escalationMode === 'human' ? 'ai_bypassed' : 'ai_handoff',
     transcript: buildTranscript()
   };
