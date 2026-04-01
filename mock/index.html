@@ -266,6 +266,12 @@
   .sev-chip.selected[data-sev="P3"] { background: #fefce8; border-color: #ca8a04; }
   .sev-chip.selected[data-sev="P4"] { background: #f0fdf4; border-color: #16a34a; }
   .sev-desc { font-size: 11.5px; color: #6b7280; margin-top: 8px; }
+  .product-type-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .pt-chip {
+    padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 600;
+    border: 2px solid #e5e7eb; background: #fff; cursor: pointer; color: #374151; transition: all .15s;
+  }
+  .pt-chip.selected { background: #eff6ff; border-color: #2563eb; color: #2563eb; }
   .ticket-panel-footer { padding: 20px 24px; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
   .submit-ticket-btn {
     width: 100%; padding: 13px; background: #2563eb; color: #fff;
@@ -612,6 +618,18 @@
         <button class="sev-chip" data-sev="P4" onclick="selectSeverity('P4')">P4</button>
       </div>
       <div class="sev-desc" id="sev-desc">P1 = Production down · P2 = Major impact · P3 = Minor impact · P4 = Question</div>
+    </div>
+
+    <!-- Product Type -->
+    <div class="form-group">
+      <label>Product Type <span style="color:#ef4444">*</span></label>
+      <div class="product-type-chips" id="product-type-chips">
+        <button type="button" class="pt-chip" data-pt="Fivetran" onclick="selectProductType('Fivetran')">Fivetran</button>
+        <button type="button" class="pt-chip" data-pt="HVR" onclick="selectProductType('HVR')">HVR</button>
+        <button type="button" class="pt-chip" data-pt="HVA" onclick="selectProductType('HVA')">HVA</button>
+        <button type="button" class="pt-chip" data-pt="Hybrid Deployment" onclick="selectProductType('Hybrid Deployment')">Hybrid Deployment</button>
+        <button type="button" class="pt-chip" data-pt="Activations" onclick="selectProductType('Activations')">Activations</button>
+      </div>
     </div>
 
     <!-- Connector + Destination row -->
@@ -1048,6 +1066,10 @@ function openTicketPanel(mode) {
 
 function closeTicketPanel() {
   document.getElementById('ticket-panel').classList.remove('open');
+  selectedProductType = '';
+  selectedSeverity = null;
+  document.querySelectorAll('.pt-chip').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('.sev-chip').forEach(el => el.classList.remove('selected'));
 }
 
 function extractSubject() {
@@ -1060,6 +1082,15 @@ function buildTranscript() {
   if (messageHistory.length === 0) return '';
   const lines = messageHistory.map(m => `${m.role === 'user' ? 'Customer' : 'Fivetran AI'}: ${m.text}`);
   return `[AI Support Conversation Transcript]\n\n${lines.join('\n\n')}\n\n---\nThis ticket was ${escalationMode === 'human' ? 'requested by the customer via "Talk to a Human"' : 'escalated because the AI could not resolve the issue'}.`;
+}
+
+let selectedProductType = '';
+
+function selectProductType(pt) {
+  selectedProductType = pt;
+  document.querySelectorAll('.pt-chip').forEach(el => {
+    el.classList.toggle('selected', el.dataset.pt === pt);
+  });
 }
 
 function selectSeverity(sev) {
@@ -1087,6 +1118,7 @@ async function submitTicket() {
   if (!subject) { alert('Please enter a subject.'); return; }
   if (!description) { alert('Please enter a description.'); return; }
   if (!email) { alert('Please enter your email address.'); return; }
+  if (!selectedProductType) { alert('Please select a product type.'); return; }
   if (!selectedSeverity) { alert('Please select a severity level.'); return; }
 
   const btn = document.getElementById('submit-ticket-btn');
@@ -1098,6 +1130,7 @@ async function submitTicket() {
     description,
     email,
     severity: selectedSeverity,
+    productType: selectedProductType,
     connector: document.getElementById('ticket-connector').value,
     destination: document.getElementById('ticket-destination').value,
     category: document.getElementById('ticket-category').value,

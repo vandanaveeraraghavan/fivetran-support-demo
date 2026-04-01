@@ -433,19 +433,21 @@ async def create_zendesk_ticket(body: dict):
     """
     subject     = body.get("subject", "Support Request")[:200]
     description = body.get("description", "")
-    email       = body.get("email", "customer@example.com")
-    severity    = body.get("severity", "P3")
-    connector   = body.get("connector", "")
-    destination = body.get("destination", "")
-    category    = body.get("category", "")
-    tag         = body.get("tag", "ai_handoff")   # ai_resolved | ai_handoff | ai_bypassed
-    transcript  = body.get("transcript", description)
+    email        = body.get("email", "customer@example.com")
+    severity     = body.get("severity", "P3")
+    product_type = body.get("productType", "")   # Fivetran | HVR | HVA | Hybrid Deployment | Activations
+    connector    = body.get("connector", "")
+    destination  = body.get("destination", "")
+    category     = body.get("category", "")
+    tag          = body.get("tag", "ai_handoff")   # ai_resolved | ai_handoff | ai_bypassed
+    transcript   = body.get("transcript", description)
 
     # Build full ticket description
     parts = [transcript or description]
-    if connector:   parts.append(f"\nConnector: {connector}")
-    if destination: parts.append(f"Destination: {destination}")
-    if category:    parts.append(f"Category: {category}")
+    if product_type: parts.append(f"\nProduct Type: {product_type}")
+    if connector:    parts.append(f"Connector: {connector}")
+    if destination:  parts.append(f"Destination: {destination}")
+    if category:     parts.append(f"Category: {category}")
     parts.append(f"Severity: {severity}")
     full_description = "\n".join(parts)
 
@@ -472,7 +474,9 @@ async def create_zendesk_ticket(body: dict):
             "comment":   {"body": full_description},
             "requester": {"email": email, "name": email.split("@")[0]},
             "priority":  SEV_PRIORITY.get(severity, "normal"),
-            "tags":      [tag, "ai_support_demo", f"sev_{severity.lower()}"],
+            "tags":      [tag, "ai_support_demo", f"sev_{severity.lower()}"] + (
+                             [f"product_{product_type.lower().replace(' ', '_')}"] if product_type else []
+                         ),
         }
     }).encode()
 
