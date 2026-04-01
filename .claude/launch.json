@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fivetran-support-flow",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/vandana.veeraraghavan/Downloads/fivetran-support-demo && python3 -m http.server 8090"],
+      "port": 8090
+    }
+  ]
+}

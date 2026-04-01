@@ -404,6 +404,100 @@ async def reset_session(body: dict):
     return {"status": "reset"}
 
 
+# ── Zendesk ticket creation (sandbox: fivetran18131705608885) ─────────────────
+ZENDESK_SUBDOMAIN = os.environ.get("ZENDESK_SUBDOMAIN", "fivetran18131705608885")
+ZENDESK_EMAIL     = os.environ.get("ZENDESK_EMAIL", "")
+ZENDESK_API_TOKEN = os.environ.get("ZENDESK_API_TOKEN", "")
+
+SEV_PRIORITY = {"P1": "urgent", "P2": "high", "P3": "normal", "P4": "low"}
+
+
+@app.post("/create-zendesk-ticket")
+async def create_zendesk_ticket(body: dict):
+    """
+    Create a Zendesk ticket in the Fivetran support sandbox.
+
+    Env vars (optional — falls back to mock if absent):
+      ZENDESK_EMAIL      – agent email  e.g. vandana@fivetran.com
+      ZENDESK_API_TOKEN  – Zendesk API token (Admin → Apps & Integrations → API)
+      ZENDESK_SUBDOMAIN  – defaults to fivetran18131705608885
+    """
+    subject     = body.get("subject", "Support Request")[:200]
+    description = body.get("description", "")
+    email       = body.get("email", "customer@example.com")
+    severity    = body.get("severity", "P3")
+    connector   = body.get("connector", "")
+    destination = body.get("destination", "")
+    category    = body.get("category", "")
+    tag         = body.get("tag", "ai_handoff")   # ai_resolved | ai_handoff | ai_bypassed
+    transcript  = body.get("transcript", description)
+
+    # Build full ticket description
+    parts = [transcript or description]
+    if connector:   parts.append(f"\nConnector: {connector}")
+    if destination: parts.append(f"Destination: {destination}")
+    if category:    parts.append(f"Category: {category}")
+    parts.append(f"Severity: {severity}")
+    full_description = "\n".join(parts)
+
+    # Return a realistic mock when credentials are not set
+    if not ZENDESK_EMAIL or not ZENDESK_API_TOKEN:
+        import random
+        mock_id = random.randint(10000, 99999)
+        print(f"[zendesk] No credentials — mock ticket #{mock_id}", flush=True)
+        return {
+            "ticket_id": mock_id,
+            "url": f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/{mock_id}",
+            "tag": tag,
+            "mock": True,
+        }
+
+    # Live Zendesk API call
+    import base64
+    api_url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets.json"
+    auth_b64 = base64.b64encode(f"{ZENDESK_EMAIL}/token:{ZENDESK_API_TOKEN}".encode()).decode()
+
+    payload = json.dumps({
+        "ticket": {
+            "subject":   subject,
+            "comment":   {"body": full_description},
+            "requester": {"email": email, "name": email.split("@")[0]},
+            "priority":  SEV_PRIORITY.get(severity, "normal"),
+            "tags":      [tag, "ai_support_demo", f"sev_{severity.lower()}"],
+        }
+    }).encode()
+
+    req = urllib.request.Request(
+        api_url,
+        data=payload,
+        headers={
+            "Content-Type":  "application/json",
+            "Authorization": f"Basic {auth_b64}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15, context=_SSL_CTX) as resp:
+            result = json.loads(resp.read())
+        ticket_id = result["ticket"]["id"]
+        print(f"[zendesk] Created ticket #{ticket_id} tag={tag}", flush=True)
+        return {
+            "ticket_id": ticket_id,
+            "url": f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/{ticket_id}",
+            "tag": tag,
+            "mock": False,
+        }
+    except Exception as exc:
+        import random
+        mock_id = random.randint(10000, 99999)
+        print(f"[zendesk] API error ({exc}) — mock #{mock_id}", flush=True)
+        return {
+            "ticket_id": mock_id,
+            "url": f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/{mock_id}",
+            "tag": tag, "mock": True, "error": str(exc),
+        }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=3001, log_level="info")
