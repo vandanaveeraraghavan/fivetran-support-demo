@@ -44,6 +44,14 @@ if _env_file.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
+# Load Zendesk API token from the local key file (never committed to the repo).
+# File location: ~/Downloads/zd_sandbox_api_key  (plain text, one line — just the token)
+_zd_key_file = Path.home() / "Downloads" / "zd_sandbox_api_key"
+if _zd_key_file.exists():
+    _zd_token = _zd_key_file.read_text().strip()
+    if _zd_token:
+        os.environ.setdefault("ZENDESK_API_TOKEN", _zd_token)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
