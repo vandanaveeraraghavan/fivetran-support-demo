@@ -170,6 +170,28 @@
   @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
   #typing-text { font-size: 12px; color: #6b7280; font-style: italic; min-height: 16px; transition: opacity 0.3s; }
 
+  /* Idle prompt card */
+  .idle-prompt-card {
+    margin: 8px 24px 12px;
+    padding: 14px 16px;
+    background: #eff6ff;
+    border: 1.5px solid #bfdbfe;
+    border-radius: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .idle-prompt-text { font-size: 14px; font-weight: 600; color: #1e40af; }
+  .idle-prompt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .idle-btn {
+    padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: 1.5px solid transparent; transition: background .15s, border-color .15s;
+  }
+  .idle-btn-primary  { background: #2563eb; color: #fff; }
+  .idle-btn-primary:hover  { background: #1d4ed8; }
+  .idle-btn-secondary { background: #fff; color: #1d4ed8; border-color: #93c5fd; }
+  .idle-btn-secondary:hover { background: #dbeafe; }
+  .idle-btn-ghost { background: transparent; color: #6b7280; border-color: #d1d5db; }
+  .idle-btn-ghost:hover { background: #f3f4f6; }
+
   /* Quick chips in chat */
   .quick-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 24px 16px; }
   .quick-chip {
@@ -714,8 +736,8 @@ let selectedSeverity = null;
 let attachedFile = null;
 let isBusy = false;
 let escalationMode = 'escalate'; // 'escalate' | 'human'
+let inactivityTimer3 = null;
 let inactivityTimer5 = null;
-let inactivityTimer10 = null;
 let needsTimeFlag = false;
 
 // ═══════════════════════════════════════════════════════
@@ -1136,39 +1158,91 @@ function closeTicketPanel() {
 }
 
 function resetInactivityTimers() {
+  clearTimeout(inactivityTimer3);
   clearTimeout(inactivityTimer5);
-  clearTimeout(inactivityTimer10);
+  inactivityTimer3 = null;
   inactivityTimer5 = null;
-  inactivityTimer10 = null;
+  dismissIdlePrompt();
+}
+
+function dismissIdlePrompt() {
+  const el = document.getElementById('idle-prompt');
+  if (el) el.remove();
+}
+
+function showIdlePrompt() {
+  dismissIdlePrompt();
+  const msgs = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.id = 'idle-prompt';
+  div.className = 'idle-prompt-card';
+  div.innerHTML = `
+    <span class="idle-prompt-text">Still there? 👋</span>
+    <div class="idle-prompt-actions">
+      <button class="idle-btn idle-btn-primary" onclick="handleIdleKeepChatting()">Keep chatting</button>
+      <button class="idle-btn idle-btn-secondary" onclick="handleIdleEngineer()">Connect to an engineer</button>
+      <button class="idle-btn idle-btn-ghost" onclick="handleIdleDone()">I'm done</button>
+    </div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = 9999;
+
+  // +2 min with no reply → quiet reset
+  inactivityTimer5 = setTimeout(() => {
+    if (isBusy) return;
+    const waitPattern = /check|look into|gather|dig into|investigate|find out|get back|let me know|need (a moment|some time|to check)/i;
+    const lastAI = [...messageHistory].reverse().find(m => m.role === 'agent')?.text || '';
+    if (needsTimeFlag || waitPattern.test(lastAI)) { dismissIdlePrompt(); return; }
+    quietResetSession();
+  }, 2 * 60 * 1000);
+}
+
+function handleIdleKeepChatting() {
+  resetInactivityTimers();
+  dismissIdlePrompt();
+  appendMessage('agent', "Great, I'm still here! What would you like to do next?");
+  startInactivityTimers();
+}
+
+function handleIdleEngineer() {
+  resetInactivityTimers();
+  dismissIdlePrompt();
+  openTicketPanel('escalate');
+}
+
+function handleIdleDone() {
+  resetInactivityTimers();
+  dismissIdlePrompt();
+  appendMessage('agent', "No problem! Glad I could help. Come back any time — I'll be here. 👋");
+  document.getElementById('resolution-bar').classList.add('hidden');
+}
+
+function quietResetSession() {
+  dismissIdlePrompt();
+  document.getElementById('resolution-bar').classList.add('hidden');
+  document.getElementById('csat-area').classList.add('hidden');
+  resetInactivityTimers();
+  // Log the session end silently (no message appended to UI)
+  console.log('[idle-timeout] Session auto-closed after inactivity. Messages:', messageHistory.length);
+  // Soft-reset: clear chat and state for next visitor
+  setTimeout(() => {
+    messageHistory = [];
+    sessionId = null;
+    selectedSeverity = null;
+    selectedProductType = '';
+    const msgs = document.getElementById('chat-messages');
+    msgs.innerHTML = '<!-- Messages rendered here by JS -->';
+    openAiAgent(); // re-greet
+  }, 800);
 }
 
 function startInactivityTimers() {
   resetInactivityTimers();
   needsTimeFlag = false;
 
-  inactivityTimer5 = setTimeout(() => {
+  inactivityTimer3 = setTimeout(() => {
     if (isBusy) return;
-    // Natural check-in — vary the message
-    const msgs = [
-      "Still there? No rush — I'll be here whenever you're ready to continue.",
-      "Just checking in — take your time. Pick up whenever it suits you.",
-      "Hey, still around? Happy to keep going whenever you're ready.",
-    ];
-    appendMessage('agent', msgs[Math.floor(Math.random() * msgs.length)]);
-
-    // Start 10-min timer from this point
-    inactivityTimer10 = setTimeout(() => {
-      if (isBusy) return;
-      // Check if context suggests customer is gathering info
-      const lastAI = [...messageHistory].reverse().find(m => m.role === 'agent')?.text || '';
-      const waitPattern = /check|look into|gather|dig into|investigate|find out|get back|let me know|need (a moment|some time|to check)/i;
-      if (needsTimeFlag || waitPattern.test(lastAI)) return; // Don't abandon
-
-      appendMessage('agent', "It looks like you may have stepped away — no worries at all! I'll leave things here. Come back any time and we can pick right back up. I haven't created a support ticket.");
-      document.getElementById('resolution-bar').classList.add('hidden');
-      resetInactivityTimers();
-    }, 5 * 60 * 1000);
-  }, 5 * 60 * 1000);
+    showIdlePrompt();
+  }, 3 * 60 * 1000);
 }
 
 function extractSubject() {
