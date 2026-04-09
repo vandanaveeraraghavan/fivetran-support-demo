@@ -62,12 +62,23 @@ SKILL_MD             = Path.home() / ".claude/skills/test-support/SKILL.md"
 WORK_DIR             = str(Path.home() / "Downloads")
 CONFIDENCE_THRESHOLD  = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.8"))
 # Timeout settings (override via env vars)
-# FIRST_TOKEN_TIMEOUT: max seconds to wait for the first line of output from Claude
-# BETWEEN_TOKEN_TIMEOUT: max seconds allowed between subsequent output lines (stall detection)
-# STREAM_TIMEOUT: hard cap on the entire generation in seconds
+#
+# Why these values:
+#   Complex queries require multiple sequential MCP tool calls
+#   (fivetran_public_docs, zendesk_new, WebFetch x2-3). Each call to
+#   api.triage.cx can take 30-120s under normal load. Between tool calls
+#   the subprocess produces zero output, so BETWEEN_TOKEN_TIMEOUT must
+#   be longer than the slowest individual MCP call.
+#
+#   FIRST_TOKEN_TIMEOUT: 30s — the very first stdout line (a system/session
+#     event) should always appear quickly regardless of MCP latency.
+#   BETWEEN_TOKEN_TIMEOUT: 150s — comfortably covers a slow MCP call
+#     (observed worst case ~2 min on api.triage.cx under load).
+#   STREAM_TIMEOUT: 600s — hard 10-min wall-clock cap matching observed
+#     maximum CLI response time for deeply multi-tool queries.
 FIRST_TOKEN_TIMEOUT   = int(os.environ.get("FIRST_TOKEN_TIMEOUT",   "30"))
-BETWEEN_TOKEN_TIMEOUT = int(os.environ.get("BETWEEN_TOKEN_TIMEOUT", "20"))
-STREAM_TIMEOUT        = int(os.environ.get("STREAM_TIMEOUT",        "90"))
+BETWEEN_TOKEN_TIMEOUT = int(os.environ.get("BETWEEN_TOKEN_TIMEOUT", "150"))
+STREAM_TIMEOUT        = int(os.environ.get("STREAM_TIMEOUT",        "600"))
 
 # FivetranKnowledge MCP server URL (override via env var if it ever changes)
 FIVETRAN_MCP_URL = os.environ.get(
