@@ -727,6 +727,12 @@ const API_BASE = 'http://localhost:3001';
 const ZENDESK_SUBDOMAIN = 'fivetran18131705608885';
 const ZENDESK_BASE = `https://${ZENDESK_SUBDOMAIN}.zendesk.com`;
 
+// Confidence threshold — loaded from /health on startup, fallback 0.8
+let CONFIDENCE_THRESHOLD = 0.8;
+fetch(`${API_BASE}/health`).then(r => r.json()).then(d => {
+  if (d.confidence_threshold != null) CONFIDENCE_THRESHOLD = d.confidence_threshold;
+}).catch(() => {});
+
 // ═══════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════
@@ -739,6 +745,7 @@ let escalationMode = 'escalate'; // 'escalate' | 'human'
 let inactivityTimer3 = null;
 let inactivityTimer5 = null;
 let needsTimeFlag = false;
+let lastConfidenceScore = null; // most recent score from AI
 
 // ═══════════════════════════════════════════════════════
 //  PORTAL NAVIGATION
@@ -964,8 +971,13 @@ async function callAI(userMessage) {
           const data = JSON.parse(line.slice(6));
           if (data.type === 'text' && data.text) {
             fullText += data.text;
-            bubble.innerHTML = markdownToHtml(fullText);
+            // Strip confidence comment from visible text
+            const visibleText = fullText.replace(/<!--\s*confidence:\s*[0-9.]+\s*-->/gi, '').trimEnd();
+            bubble.innerHTML = markdownToHtml(visibleText);
             document.getElementById('chat-messages').scrollTop = 9999;
+          }
+          if (data.type === 'confidence') {
+            lastConfidenceScore = data.score;
           }
           if (data.type === 'done' && data.sessionId) {
             sessionId = data.sessionId;
@@ -977,10 +989,24 @@ async function callAI(userMessage) {
     // Remove streaming ID so next message gets fresh bubble
     if (bubble) bubble.removeAttribute('id');
 
-    if (fullText) {
-      messageHistory.push({ role: 'agent', text: fullText });
-      if (messageHistory.filter(m => m.role === 'agent').length >= 1) {
-        document.getElementById('resolution-bar').classList.remove('hidden');
+    // Strip confidence comment from stored history text
+    const cleanText = fullText.replace(/<!--\s*confidence:\s*[0-9.]+\s*-->/gi, '').trimEnd();
+
+    if (cleanText) {
+      messageHistory.push({ role: 'agent', text: cleanText });
+
+      if (lastConfidenceScore !== null && lastConfidenceScore < CONFIDENCE_THRESHOLD) {
+        // R15: low confidence — auto-trigger handoff, don't show resolution bar
+        appendMessage('agent',
+          `My confidence in this answer is **${Math.round(lastConfidenceScore * 100)}%** — below the threshold needed to consider this fully resolved. ` +
+          `I'd recommend connecting you with a support engineer who can dig deeper.`
+        );
+        setTimeout(() => openTicketPanel('escalate'), 800);
+      } else {
+        // High confidence or no score — show resolution bar
+        if (messageHistory.filter(m => m.role === 'agent').length >= 1) {
+          document.getElementById('resolution-bar').classList.remove('hidden');
+        }
       }
       startInactivityTimers();
     }
@@ -1401,7 +1427,8 @@ async function submitTicket() {
     productType: selectedProductType,
     ...dynFields,
     tag: escalationMode === 'human' ? 'ai_bypassed' : 'ai_handoff',
-    transcript: buildTranscript()
+    transcript: buildTranscript(),
+    confidenceScore: lastConfidenceScore,
   };
 
   const result = await createZendeskTicket(payload);

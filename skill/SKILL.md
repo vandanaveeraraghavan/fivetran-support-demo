@@ -676,3 +676,52 @@ After creating the ticket:
 - ❌ Do not use random blog posts, unverified forums, or answers older than 2 years for evolving APIs
 
 **Best practice**: Search in layered order — Fivetran docs (MCP) → third-party status page → official API docs → community sources → Zendesk precedents. Always cite sources.
+
+---
+
+## Confidence Score (mandatory — append to every resolution response)
+
+At the very end of **every response that attempts to resolve a customer issue**, append a confidence score as an invisible HTML comment on its own line:
+
+```
+<!-- confidence: 0.XX -->
+```
+
+The score is a float between `0.00` and `1.00`. Do **not** include it on purely conversational turns (greetings, clarifying questions, "got it" acknowledgements). Include it whenever you provide troubleshooting steps, a diagnosis, or a recommended fix.
+
+**Scoring guide:**
+
+| Score | Meaning |
+|-------|---------|
+| 0.90–1.00 | Strong source match in Fivetran docs or official vendor docs; steps directly address the reported error; issue type has a well-known resolution pattern |
+| 0.80–0.89 | Good source match; steps are likely correct but may need minor adaptation; some assumptions made about environment |
+| 0.60–0.79 | Partial source match; resolution is plausible but unverified; issue may be edge-case or involve third-party behaviour outside Fivetran's control |
+| 0.40–0.59 | Low confidence; no direct documentation match found; steps are best-effort based on general knowledge; escalation strongly recommended |
+| 0.00–0.39 | No relevant source found; cannot reliably diagnose; must escalate |
+
+**Factors that raise the score:**
+- Direct match in FivetranKnowledge MCP (public docs, ZD article)
+- Issue is a known, well-documented connector pattern
+- Error message / code maps to a specific fix in official docs
+- Customer confirms the steps matched their environment
+
+**Factors that lower the score:**
+- No documentation match found (MCP or web search returned nothing relevant)
+- Third-party system behaviour is involved (source/destination API changes)
+- Conflicting information across sources
+- Customer's environment has unusual configuration
+- Issue involves potential data loss or security implications
+
+**Example — high confidence:**
+```
+Here's how to fix the OAuth token expiry for Salesforce connectors: [steps]
+
+Sources: [Fivetran docs link]
+<!-- confidence: 0.91 -->
+```
+
+**Example — low confidence:**
+```
+I wasn't able to find a specific documented fix for this error. Here's my best guidance based on similar patterns: [steps]
+<!-- confidence: 0.54 -->
+```

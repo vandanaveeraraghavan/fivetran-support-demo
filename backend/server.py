@@ -57,9 +57,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CLAUDE_BIN   = str(Path.home() / ".local/bin/claude")
-SKILL_MD     = Path.home() / ".claude/skills/test-support/SKILL.md"
-WORK_DIR     = str(Path.home() / "Downloads")
+CLAUDE_BIN           = str(Path.home() / ".local/bin/claude")
+SKILL_MD             = Path.home() / ".claude/skills/test-support/SKILL.md"
+WORK_DIR             = str(Path.home() / "Downloads")
+CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.8"))
 
 # FivetranKnowledge MCP server URL (override via env var if it ever changes)
 FIVETRAN_MCP_URL = os.environ.get(
@@ -302,8 +303,10 @@ async def chat_stream(body: dict):
     cmd = build_cmd(message, claude_session)
 
     async def event_generator():
+        import re as _re
         accumulated_text = []
         new_claude_session = claude_session
+        _confidence_re = _re.compile(r'<!--\s*confidence:\s*([0-9.]+)\s*-->', _re.IGNORECASE)
 
         try:
             async for line in run_stream(cmd):
@@ -368,7 +371,18 @@ async def chat_stream(body: dict):
         finally:
             if new_claude_session:
                 sessions[browser_session] = new_claude_session
-            yield f"data: {json.dumps({'type':'done','sessionId':browser_session,'claudeSessionId':new_claude_session})}\n\n"
+
+            # ── Parse confidence score from accumulated response ──────────
+            full_text = "".join(accumulated_text)
+            conf_match = _confidence_re.search(full_text)
+            confidence = round(float(conf_match.group(1)), 2) if conf_match else None
+            handoff = (confidence is not None) and (confidence < CONFIDENCE_THRESHOLD)
+
+            if confidence is not None:
+                print(f"[confidence] score={confidence} threshold={CONFIDENCE_THRESHOLD} handoff={handoff}", flush=True)
+                yield f"data: {json.dumps({'type':'confidence','score':confidence,'threshold':CONFIDENCE_THRESHOLD,'handoff':handoff})}\n\n"
+
+            yield f"data: {json.dumps({'type':'done','sessionId':browser_session,'claudeSessionId':new_claude_session,'confidence':confidence,'handoff':handoff})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -401,14 +415,15 @@ def health():
         mcp_status = f"error: {exc}"
 
     return {
-        "status":          "ok",
-        "claude_bin":      CLAUDE_BIN,
-        "skill_loaded":    SKILL_MD.exists(),
-        "active_sessions": len(sessions),
-        "mcp_url":         FIVETRAN_MCP_URL,
-        "mcp_status":      mcp_status,
-        "token_expires_at": token_exp,
-        "refresh_expires_at": refresh_exp,
+        "status":               "ok",
+        "claude_bin":           CLAUDE_BIN,
+        "skill_loaded":         SKILL_MD.exists(),
+        "active_sessions":      len(sessions),
+        "mcp_url":              FIVETRAN_MCP_URL,
+        "mcp_status":           mcp_status,
+        "token_expires_at":     token_exp,
+        "refresh_expires_at":   refresh_exp,
+        "confidence_threshold": CONFIDENCE_THRESHOLD,
     }
 
 
@@ -472,16 +487,17 @@ async def create_zendesk_ticket(body: dict):
       ZENDESK_API_TOKEN  – Zendesk API token (Admin → Apps & Integrations → API)
       ZENDESK_SUBDOMAIN  – defaults to fivetran18131705608885
     """
-    subject     = body.get("subject", "Support Request")[:200]
-    description = body.get("description", "")
-    email        = body.get("email", "customer@example.com")
-    severity     = body.get("severity", "P3")
-    product_type = body.get("productType", "")   # Fivetran | HVR | HVA | Hybrid Deployment | Activations
-    connector    = body.get("connector", "")
-    destination  = body.get("destination", "")
-    category     = body.get("category", "")
-    tag          = body.get("tag", "ai_handoff")   # ai_resolved | ai_handoff | ai_bypassed
-    transcript   = body.get("transcript", description)
+    subject          = body.get("subject", "Support Request")[:200]
+    description      = body.get("description", "")
+    email            = body.get("email", "customer@example.com")
+    severity         = body.get("severity", "P3")
+    product_type     = body.get("productType", "")   # Fivetran | HVR | HVA | Hybrid Deployment | Activations
+    connector        = body.get("connector", "")
+    destination      = body.get("destination", "")
+    category         = body.get("category", "")
+    tag              = body.get("tag", "ai_handoff")   # ai_resolved | ai_handoff | ai_bypassed
+    transcript       = body.get("transcript", description)
+    confidence_score = body.get("confidenceScore")   # float 0.0–1.0 or None
 
     # Build full ticket description
     parts = [transcript or description]
@@ -490,6 +506,10 @@ async def create_zendesk_ticket(body: dict):
     if destination:  parts.append(f"Destination: {destination}")
     if category:     parts.append(f"Category: {category}")
     parts.append(f"Severity: {severity}")
+    # R14/R19: include confidence score so engineers see AI assessment
+    if confidence_score is not None:
+        pct = round(float(confidence_score) * 100)
+        parts.append(f"\nAI Confidence Score: {confidence_score:.2f} ({pct}%) — threshold {CONFIDENCE_THRESHOLD:.2f}")
     full_description = "\n".join(parts)
 
     # Return a realistic mock when credentials are not set
