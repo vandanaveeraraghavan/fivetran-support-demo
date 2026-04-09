@@ -1621,6 +1621,36 @@ function handleFileAttach(input) {
 const style = document.createElement('style');
 style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
 document.head.appendChild(style);
+
+// ═══════════════════════════════════════════════════════
+//  R13: IDLE TIMER — reset on keypress OR scroll
+//  PRD: "Reset the timer on any customer keypress or scroll event."
+//  Only resets when a conversation is active (messages exist) and AI
+//  is not currently generating a response.
+// ═══════════════════════════════════════════════════════
+(function attachIdleResetListeners() {
+  // Throttle so rapid keypresses/scroll don't hammer setTimeout
+  let _throttle = null;
+  function onActivity() {
+    if (!messageHistory.length || isBusy) return; // no active conversation
+    if (_throttle) return;
+    _throttle = setTimeout(() => { _throttle = null; }, 500);
+    // Only restart if idle timers were already running (don't start them prematurely)
+    if (inactivityTimer3 || inactivityTimer5) {
+      resetInactivityTimers();
+      startInactivityTimers();
+    }
+  }
+
+  // Keypress in the chat textarea (typing, not just sending)
+  document.addEventListener('keydown', (e) => {
+    if (e.target && e.target.id === 'chat-input') onActivity();
+  }, { passive: true });
+
+  // Scroll inside the chat messages area (customer reading the response)
+  document.addEventListener('scroll', onActivity, { passive: true });
+  document.getElementById('chat-messages')?.addEventListener('scroll', onActivity, { passive: true });
+})();
 </script>
 
 </body>

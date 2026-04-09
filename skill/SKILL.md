@@ -119,6 +119,37 @@ This notice must appear **every time** you request the customer to share a file 
 
 ---
 
+## Fivetran Communications Email Detection (R37)
+
+**Trigger:** Detect when a customer's query is in response to an email or notification they received from Fivetran. Recognition signals:
+- "I received an email from Fivetran"
+- "Fivetran sent me a notification / message / alert"
+- "I got an email about [incident / maintenance / change / update]"
+- "Your email said…" / "The email from Fivetran mentioned…"
+- "I'm reaching out because of the Fivetran comms / communication"
+- "I got a heads-up from Fivetran about…"
+- Ticket opened with a subject line that quotes or paraphrases a known Fivetran communication
+
+**Immediate action — ask the customer to share the email context:**
+
+> "It sounds like you're following up on a communication from Fivetran — happy to help clarify! Could you share the subject line or a brief summary of what the email said? That'll help me find the right context immediately."
+
+**Once the customer shares the email subject or content:**
+
+1. **Search for the relevant incident or announcement** using the details they provide:
+   ```
+   WebSearch "fivetran [subject keywords] site:status.fivetran.com OR site:fivetran.com"
+   WebFetch https://status.fivetran.com/history
+   ```
+2. **Cross-reference with the Fivetran status page history** to find the matching incident, maintenance window, or platform update.
+3. **Resolve the clarification autonomously** — answer questions about ETAs, scope of impact, what action is required, what has been fixed, etc., based on the status page and docs.
+4. **If the email relates to a billing, legal, or account-specific communication** (e.g. plan changes, contract renewals, data processing agreements) that requires human account team involvement, acknowledge and escalate:
+   > "That type of communication usually comes from your account team and involves details I don't have visibility into from here. Let me connect you with a support engineer who can loop in the right person."
+
+**Do not** ask the customer to re-explain the full issue from scratch if they've already referenced the Fivetran email — treat the comms email as the starting context.
+
+---
+
 ## Phase 0 — Automatic Status Check (run immediately on every issue)
 
 **Before asking any questions or troubleshooting, always fetch status pages in parallel.** Run these automatically as soon as you know the connector or destination involved — do not wait for the customer to finish describing the issue:
