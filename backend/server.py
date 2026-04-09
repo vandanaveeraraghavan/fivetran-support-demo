@@ -421,6 +421,39 @@ async def reset_session(body: dict):
     return {"status": "reset"}
 
 
+# ── Abandonment log  (R27 / R29) ──────────────────────────────────────────────
+# In-memory store for demo; in production this would write to ai_abandoned_sessions.
+_abandoned_sessions: list[dict] = []
+
+@app.post("/session/abandon")
+async def abandon_session(body: dict):
+    """
+    Log a session that ended without a Zendesk ticket (R27).
+
+    Fields:
+      sessionId    – session UUID (may be None if session never reached backend)
+      reason       – "idle_timeout" | "user_done"
+      messageCount – number of messages in the session
+      stage        – "query_entered" | "resolution_shown"
+      transcript   – full conversation text
+    """
+    import datetime
+    sid = body.get("sessionId")
+    record = {
+        "session_id":     sid,
+        "reason":         body.get("reason", "unknown"),
+        "message_count":  body.get("messageCount", 0),
+        "stage":          body.get("stage", "unknown"),
+        "abandoned_at":   datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    _abandoned_sessions.append(record)
+    # Also clean up any live session state
+    if sid and sid in sessions:
+        del sessions[sid]
+    print(f"[abandon] {record['reason']} | session={sid} | msgs={record['message_count']} | stage={record['stage']}")
+    return {"status": "logged", "total_abandoned": len(_abandoned_sessions)}
+
+
 # ── Zendesk ticket creation (sandbox: fivetran18131705608885) ─────────────────
 ZENDESK_SUBDOMAIN = os.environ.get("ZENDESK_SUBDOMAIN", "fivetran18131705608885")
 ZENDESK_EMAIL     = os.environ.get("ZENDESK_EMAIL", "")

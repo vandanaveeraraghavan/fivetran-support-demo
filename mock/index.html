@@ -580,7 +580,7 @@
       <div id="resolution-bar" class="resolution-bar hidden">
         <span>Did this resolve your issue?</span>
         <button class="resolve-yes" onclick="handleResolved()">✓ Yes, resolved!</button>
-        <button class="resolve-no" onclick="openTicketPanel('escalate')">No, I still need help</button>
+        <button class="resolve-no" onclick="handleNegativeFeedback()">No, I still need help</button>
       </div>
 
       <!-- CSAT prompt -->
@@ -867,6 +867,17 @@ async function sendMessage() {
   document.getElementById('resolution-bar').classList.add('hidden');
   const userMessage = text;
   resetInactivityTimers();
+
+  // R25: if we were waiting for negative feedback, capture it and open ticket panel
+  if (awaitingNegativeFeedback) {
+    awaitingNegativeFeedback = false;
+    negativeFeedbackText = userMessage;
+    const skip = document.getElementById('feedback-skip');
+    if (skip) skip.remove();
+    openTicketPanel('escalate');
+    return;
+  }
+
   needsTimeFlag = false;
   // Check if customer indicated they need time
   if (/need (time|a moment|to check)|checking|gathering|be right back|brb|let me look/i.test(userMessage)) {
@@ -976,10 +987,19 @@ async function callAI(userMessage) {
 
   } catch (err) {
     showTyping(false);
-    // Backend not running — show demo response
-    const demoReply = getDemoReply(userMessage);
     if (streamingDiv) streamingDiv.remove();
-    appendMessage('agent', demoReply);
+    // R30: backend unavailable — show clear degradation message, offer direct ticket
+    appendMessage('agent', `I'm having trouble connecting to my knowledge base right now — my apologies for the interruption.
+
+You can **[create a support ticket](#)** and an engineer will pick this up directly, or try sending your message again in a moment.`);
+    // Swap the inline link to a real action
+    const msgs = document.getElementById('chat-messages');
+    const lastBubble = msgs.querySelectorAll('.msg-bubble');
+    const lb = lastBubble[lastBubble.length - 1];
+    if (lb) {
+      const a = lb.querySelector('a[href="#"]');
+      if (a) { a.href = 'javascript:void(0)'; a.onclick = () => openTicketPanel('escalate'); }
+    }
   } finally {
     isBusy = false;
     document.getElementById('send-btn').disabled = false;
@@ -987,71 +1007,51 @@ async function callAI(userMessage) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  DEMO REPLIES (when backend not running)
+//  ABANDONMENT LOGGING  (R27 / R29)
 // ═══════════════════════════════════════════════════════
-function getDemoReply(msg) {
-  const lower = msg.toLowerCase();
-  if (lower.includes('sync') || lower.includes('fail') || lower.includes('not load')) {
-    return `I can help with that sync issue! Here are the most common causes and fixes:
+async function logAbandon(reason) {
+  if (!messageHistory.length) return; // nothing to log for empty sessions
+  try {
+    await fetch(`${API_BASE}/session/abandon`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        reason,                             // idle_timeout | user_done
+        messageCount: messageHistory.length,
+        stage: messageHistory.some(m => m.role === 'agent') ? 'resolution_shown' : 'query_entered',
+        transcript: buildTranscript(),
+      })
+    });
+  } catch (_) { /* non-blocking */ }
+}
 
-**1. Check connector status first**
-Go to **Dashboard → Connectors** and look for any error badges. Click the connector to see the latest sync log.
+// ═══════════════════════════════════════════════════════
+//  NEGATIVE FEEDBACK FLOW  (R25)
+// ═══════════════════════════════════════════════════════
+let awaitingNegativeFeedback = false;
+let negativeFeedbackText = '';
 
-**2. Common causes of sync failures:**
-- \`INCOMPLETE\` status → usually a transient API error; try **Re-sync** from the connector page
-- \`BROKEN\` status → authentication has expired; re-authorise the connector
-- Schema changes → a source column was added/removed; approve pending schema changes
+function handleNegativeFeedback() {
+  document.getElementById('resolution-bar').classList.add('hidden');
+  awaitingNegativeFeedback = true;
+  appendMessage('agent', "I'm sorry I couldn't fully resolve this! Before I connect you to a support engineer — what was missing or incorrect about my answer? This helps the engineer pick up right where I left off.\n\n*(You can also skip this by clicking **Connect to engineer** below.)*");
+  // Show a skip button inline
+  const msgs = document.getElementById('chat-messages');
+  const skip = document.createElement('div');
+  skip.id = 'feedback-skip';
+  skip.style.cssText = 'padding:4px 24px 12px;';
+  skip.innerHTML = `<button class="idle-btn idle-btn-secondary" style="font-size:12px" onclick="skipNegativeFeedback()">Connect to engineer →</button>`;
+  msgs.appendChild(skip);
+  msgs.scrollTop = 9999;
+}
 
-**3. Quick fix for most issues:**
-Click **Sync Now** on the connector page. If the error repeats, check the sync log for the specific error code.
-
-Can you share the **connector name** and the **error message** you're seeing? I can give you more targeted guidance.`;
-  }
-  if (lower.includes('auth') || lower.includes('permission') || lower.includes('403') || lower.includes('401')) {
-    return `Authentication errors are one of the most common Fivetran issues — and almost always fixable quickly.
-
-**Steps to resolve:**
-1. Go to **Dashboard → Connectors → [your connector]**
-2. Click **Edit Connection** and re-enter your credentials
-3. If using OAuth: click **Re-authorise** to refresh the token
-4. Check that the service account / API key has the required scopes (see our docs for connector-specific permission requirements)
-
-**Common culprits:**
-- Expired OAuth tokens (rotate every 60–90 days)
-- Changed password on the source system
-- IP allowlisting — Fivetran IPs may need to be whitelisted
-
-Which connector are you seeing the auth error on? I can pull up the exact permission requirements for you.`;
-  }
-  if (lower.includes('schema') || lower.includes('column') || lower.includes('table')) {
-    return `Schema changes in Fivetran need to be approved before they sync. Here's what to do:
-
-**If you see blocked columns/tables:**
-1. Go to **Dashboard → Connectors → [connector] → Schema**
-2. Look for items with a ⚠️ or **Blocked** badge
-3. Click **Approve** to allow them to sync going forward
-
-**Important notes:**
-- Deleted source columns are marked as \`DELETED\` in the destination — they won't be removed automatically (to prevent data loss)
-- New tables appear as **blocked by default** — you must explicitly approve them
-- Schema changes take effect on the **next sync**
-
-Are you seeing a specific schema error message, or trying to approve pending changes?`;
-  }
-  return `Thanks for reaching out! I'm looking into this for you.
-
-Based on what you've described, here are my initial recommendations:
-
-1. **Check the Fivetran Dashboard** for any error messages on your connector or destination
-2. **Review the sync logs** — they usually contain the specific error code that points to the root cause
-3. **Check the Status Page** at status.fivetran.com to rule out any active incidents
-
-Could you share more details?
-- Which **connector** is affected?
-- What **error message** are you seeing (if any)?
-- When did this issue start?
-
-With those details I can give you a much more targeted fix.`;
+function skipNegativeFeedback() {
+  awaitingNegativeFeedback = false;
+  negativeFeedbackText = '';
+  const skip = document.getElementById('feedback-skip');
+  if (skip) skip.remove();
+  openTicketPanel('escalate');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1142,8 +1142,13 @@ function openTicketPanel(mode) {
   const subject = extractSubject();
   document.getElementById('ticket-subject').value = subject;
 
-  // Pre-fill description with conversation transcript
-  document.getElementById('ticket-description').value = buildTranscript();
+  // Pre-fill description — include negative feedback if captured (R25)
+  let desc = buildTranscript();
+  if (negativeFeedbackText) {
+    desc = `Customer feedback on AI response: "${negativeFeedbackText}"\n\n` + desc;
+    negativeFeedbackText = '';
+  }
+  document.getElementById('ticket-description').value = desc;
 
   document.getElementById('ticket-panel').classList.add('open');
 }
@@ -1214,6 +1219,7 @@ function handleIdleDone() {
   dismissIdlePrompt();
   appendMessage('agent', "No problem! Glad I could help. Come back any time — I'll be here. 👋");
   document.getElementById('resolution-bar').classList.add('hidden');
+  logAbandon('user_done');
 }
 
 function quietResetSession() {
@@ -1221,8 +1227,7 @@ function quietResetSession() {
   document.getElementById('resolution-bar').classList.add('hidden');
   document.getElementById('csat-area').classList.add('hidden');
   resetInactivityTimers();
-  // Log the session end silently (no message appended to UI)
-  console.log('[idle-timeout] Session auto-closed after inactivity. Messages:', messageHistory.length);
+  logAbandon('idle_timeout'); // R27: log every abandonment to backend
   // Soft-reset: clear chat and state for next visitor
   setTimeout(() => {
     messageHistory = [];
