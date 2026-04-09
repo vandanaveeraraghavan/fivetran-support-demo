@@ -60,7 +60,14 @@ from fastapi.responses import StreamingResponse
 CLAUDE_BIN           = str(Path.home() / ".local/bin/claude")
 SKILL_MD             = Path.home() / ".claude/skills/test-support/SKILL.md"
 WORK_DIR             = str(Path.home() / "Downloads")
-CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.8"))
+CONFIDENCE_THRESHOLD  = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.8"))
+# Timeout settings (override via env vars)
+# FIRST_TOKEN_TIMEOUT: max seconds to wait for the first line of output from Claude
+# BETWEEN_TOKEN_TIMEOUT: max seconds allowed between subsequent output lines (stall detection)
+# STREAM_TIMEOUT: hard cap on the entire generation in seconds
+FIRST_TOKEN_TIMEOUT   = int(os.environ.get("FIRST_TOKEN_TIMEOUT",   "30"))
+BETWEEN_TOKEN_TIMEOUT = int(os.environ.get("BETWEEN_TOKEN_TIMEOUT", "20"))
+STREAM_TIMEOUT        = int(os.environ.get("STREAM_TIMEOUT",        "90"))
 
 # FivetranKnowledge MCP server URL (override via env var if it ever changes)
 FIVETRAN_MCP_URL = os.environ.get(
@@ -222,12 +229,17 @@ async def run_stream(cmd: list[str]):
     """
     Async generator: yields raw stdout lines from the claude CLI subprocess.
 
+    Timeout behaviour (PRD performance requirements):
+      - FIRST_TOKEN_TIMEOUT:   if no output arrives within this many seconds,
+                               the subprocess is killed and TimeoutError is raised.
+      - BETWEEN_TOKEN_TIMEOUT: if the stream stalls mid-response for this many
+                               seconds, the subprocess is killed and TimeoutError raised.
+      - STREAM_TIMEOUT:        hard wall-clock cap on the entire generation; the
+                               subprocess is killed if it exceeds this regardless of
+                               whether tokens are flowing.
+
     Also handles the control_request / control_response bidirectional protocol
-    used when type:http MCP servers are configured.  When claude needs to call
-    an MCP tool it emits a control_request JSON on stdout; the backend must
-    write a control_response JSON to stdin.  For http-type servers this proxy
-    is not needed (claude calls the URL directly), but the handler is here for
-    completeness and future type:sdk support.
+    used when type:http MCP servers are configured.
     """
     env = os.environ.copy()
     env["PATH"] = str(Path.home() / ".local/bin") + ":" + env.get("PATH", "")
@@ -237,7 +249,7 @@ async def run_stream(cmd: list[str]):
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        stdin=asyncio.subprocess.PIPE,   # needed for control_response
+        stdin=asyncio.subprocess.PIPE,
         cwd=WORK_DIR,
         env=env,
     )
@@ -251,34 +263,77 @@ async def run_stream(cmd: list[str]):
 
     asyncio.create_task(read_stderr())
 
-    async for raw_line in proc.stdout:
-        line = raw_line.decode("utf-8", errors="replace").strip()
-        if not line:
-            continue
+    deadline    = asyncio.get_event_loop().time() + STREAM_TIMEOUT
+    first_token = True
 
-        # Intercept control_request (only emitted when MCP servers are SDK-type)
+    try:
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError(
+                    f"AI response exceeded the {STREAM_TIMEOUT}s hard limit — generation cancelled."
+                )
+
+            per_read = min(
+                FIRST_TOKEN_TIMEOUT if first_token else BETWEEN_TOKEN_TIMEOUT,
+                remaining,
+            )
+
+            try:
+                raw_line = await asyncio.wait_for(proc.stdout.readline(), timeout=per_read)
+            except asyncio.TimeoutError:
+                if first_token:
+                    raise asyncio.TimeoutError(
+                        f"AI did not respond within {FIRST_TOKEN_TIMEOUT}s — "
+                        "the request may have stalled or the MCP server is unreachable."
+                    )
+                else:
+                    raise asyncio.TimeoutError(
+                        f"AI response stalled for {BETWEEN_TOKEN_TIMEOUT}s mid-stream — generation cancelled."
+                    )
+
+            if not raw_line:
+                break  # EOF
+
+            first_token = False
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+
+            # Intercept control_request (only emitted when MCP servers are SDK-type)
+            try:
+                parsed = json.loads(line)
+                if parsed.get("type") == "control_request":
+                    error_resp = json.dumps({
+                        "type": "control_response",
+                        "response": {
+                            "subtype": "error",
+                            "request_id": parsed.get("request_id", ""),
+                            "error": "SDK-type MCP proxy not active; use http-type via FIVETRAN_MCP_URL",
+                        },
+                    }) + "\n"
+                    proc.stdin.write(error_resp.encode())
+                    await proc.stdin.drain()
+                    continue
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+            yield line
+
+    except asyncio.TimeoutError:
+        print(f"[timeout] killing subprocess pid={proc.pid}", flush=True)
         try:
-            parsed = json.loads(line)
-            if parsed.get("type") == "control_request":
-                # Not needed for http-type MCP, but handle gracefully
-                error_resp = json.dumps({
-                    "type": "control_response",
-                    "response": {
-                        "subtype": "error",
-                        "request_id": parsed.get("request_id", ""),
-                        "error": "SDK-type MCP proxy not active; use http-type via FIVETRAN_MCP_URL",
-                    },
-                }) + "\n"
-                proc.stdin.write(error_resp.encode())
-                await proc.stdin.drain()
-                continue   # don't yield control_request to caller
-        except (json.JSONDecodeError, AttributeError):
+            proc.kill()
+        except ProcessLookupError:
             pass
+        raise  # re-raise so event_generator can emit the error SSE event
 
-        yield line
-
-    await proc.wait()
-    print(f"[proc] exit code {proc.returncode}", flush=True)
+    finally:
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            pass
+        print(f"[proc] exit code {proc.returncode}", flush=True)
 
 
 # ── SSE Stream endpoint ───────────────────────────────────────────────────────
@@ -364,8 +419,9 @@ async def chat_stream(body: dict):
                     if sid:
                         new_claude_session = sid
 
-        except asyncio.TimeoutError:
-            yield f"data: {json.dumps({'type':'error','message':'Request timed out'})}\n\n"
+        except asyncio.TimeoutError as te:
+            print(f"[timeout] {te}", flush=True)
+            yield f"data: {json.dumps({'type':'error','message':str(te)})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'type':'error','message':str(exc)})}\n\n"
         finally:
