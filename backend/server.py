@@ -198,9 +198,12 @@ def build_cmd(message: str, claude_session: str | None) -> list[str]:
     """
     try:
         mcp_token = _get_fivetran_mcp_token()
+        # Server must be named "claude_ai_FivetranKnowledge" so that the
+        # generated tool names (mcp__claude_ai_FivetranKnowledge__*) match
+        # exactly what SKILL.md references and what the CLI uses interactively.
         mcp_config = json.dumps({
             "mcpServers": {
-                "FivetranKnowledge": {
+                "claude_ai_FivetranKnowledge": {
                     "type": "http",
                     "url": FIVETRAN_MCP_URL,
                     "headers": {"Authorization": f"Bearer {mcp_token}"},
@@ -208,8 +211,8 @@ def build_cmd(message: str, claude_session: str | None) -> list[str]:
             }
         })
         tools = (
-            "mcp__FivetranKnowledge__fivetran_public_docs,"
-            "mcp__FivetranKnowledge__zendesk_new,"
+            "mcp__claude_ai_FivetranKnowledge__fivetran_public_docs,"
+            "mcp__claude_ai_FivetranKnowledge__zendesk_new,"
             "WebFetch,WebSearch"
         )
         base = [
