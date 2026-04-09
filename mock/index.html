@@ -1009,6 +1009,7 @@ async function callAI(userMessage) {
     const decoder = new TextDecoder();
     let buffer = '';
     let firstToken = true;
+    let serverError = null; // set if backend sends {type:"error"}
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1034,7 +1035,6 @@ async function callAI(userMessage) {
             document.getElementById('chat-messages').scrollTop = 9999;
           }
           if (data.type === 'tool_search') {
-            // Update typing indicator label dynamically
             const label = data.source || data.tool || '';
             updateTypingLabel(label);
           }
@@ -1043,6 +1043,10 @@ async function callAI(userMessage) {
           }
           if (data.type === 'done' && data.sessionId) {
             sessionId = data.sessionId;
+          }
+          if (data.type === 'error') {
+            // Backend explicitly signalled an error (e.g. timeout, MCP failure)
+            serverError = data.message || 'An error occurred';
           }
         } catch {}
       }
@@ -1054,6 +1058,30 @@ async function callAI(userMessage) {
       bubble.removeAttribute('id');
     }
     showTyping(false);
+
+    // If the backend reported an error, show degradation — never show resolution bar
+    if (serverError) {
+      // Mark any partial response visually as incomplete
+      if (bubble && fullText.trim()) {
+        const note = document.createElement('div');
+        note.style.cssText = 'margin-top:8px;font-size:12px;color:#9ca3af;font-style:italic;';
+        note.textContent = '— response interrupted —';
+        bubble.appendChild(note);
+      } else if (streamingDiv) {
+        streamingDiv.remove();
+      }
+      appendMessage('agent', `I ran into a problem while looking that up — my apologies for the interruption.
+
+You can **[create a support ticket](#)** and an engineer will pick this up directly, or feel free to try again.`);
+      const msgs = document.getElementById('chat-messages');
+      const lb = msgs.querySelectorAll('.msg-bubble');
+      const last = lb[lb.length - 1];
+      if (last) {
+        const a = last.querySelector('a[href="#"]');
+        if (a) { a.href = 'javascript:void(0)'; a.onclick = () => openTicketPanel('escalate'); }
+      }
+      return; // skip resolution bar entirely
+    }
 
     // Strip confidence comment from stored history text
     const cleanText = fullText.replace(/<!--\s*confidence:\s*[0-9.]+\s*-->/gi, '').trimEnd();
