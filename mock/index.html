@@ -133,6 +133,22 @@
   .msg { display: flex; gap: 10px; max-width: 700px; }
   .msg.agent { align-self: flex-start; }
   .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  /* Five avatar */
+  .five-avatar {
+    width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+    background: linear-gradient(135deg, #6366f1 0%, #2563eb 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; box-shadow: 0 1px 4px rgba(99,102,241,.35);
+  }
+  /* Stop generation button */
+  .stop-btn {
+    width: 40px; height: 40px; border-radius: 10px; border: none; cursor: pointer;
+    background: #fee2e2; color: #dc2626;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s; flex-shrink: 0;
+  }
+  .stop-btn:hover { background: #fecaca; }
+  .stop-btn.hidden { display: none; }
   .msg-avatar {
     width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;
@@ -244,6 +260,7 @@
   .send-btn:hover { background: #1d4ed8; }
   .send-btn svg { width: 18px; height: 18px; color: #fff; }
   .send-btn:disabled { background: #d1d5db; cursor: not-allowed; }
+  .send-btn.hidden { display: none; }
 
   /* ── TICKET PANEL ── */
   #ticket-panel {
@@ -512,7 +529,7 @@
       <div class="ai-title-wrap">
         <div class="ai-badge">
           <div class="ai-dot"></div>
-          Fivetran AI Support
+          Five
         </div>
         <div class="ai-sub">Powered by Claude · Usually responds instantly</div>
       </div>
@@ -560,7 +577,7 @@
 
       <!-- Typing indicator (hidden by default) -->
       <div id="typing-indicator" class="typing-indicator hidden">
-        <div class="msg-avatar" style="background:#2563eb;color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">AI</div>
+        <div class="five-avatar">⚡</div>
         <div class="typing-bubble">
           <div class="typing-dots"><span></span><span></span><span></span></div>
           <div id="typing-text"></div>
@@ -610,6 +627,11 @@
         <button class="send-btn" id="send-btn" onclick="sendMessage()" title="Send">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+          </svg>
+        </button>
+        <button class="stop-btn hidden" id="stop-btn" onclick="stopGeneration()" title="Stop generating">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <rect x="4" y="4" width="16" height="16" rx="2"/>
           </svg>
         </button>
       </div>
@@ -784,7 +806,7 @@ function closeAiAgent() {
 //  WELCOME MESSAGE
 // ═══════════════════════════════════════════════════════
 function showWelcomeMessage() {
-  appendMessage('agent', `Hi there! 👋 I'm Fivetran AI, here to help you resolve your issue as quickly as possible.
+  appendMessage('agent', `Hi there! 👋 I'm **Five**, your Fivetran AI support assistant — here to help you resolve your issue as quickly as possible.
 
 I can help with connector syncs, authentication errors, schema issues, destination problems, transformations, and more.
 
@@ -798,9 +820,11 @@ function appendMessage(role, text) {
   const msgs = document.getElementById('chat-messages');
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  const initials = role === 'agent' ? 'AI' : 'You';
+  const avatarHtml = role === 'agent'
+    ? `<div class="five-avatar">⚡</div>`
+    : `<div class="msg-avatar">You</div>`;
   div.innerHTML = `
-    <div class="msg-avatar">${initials}</div>
+    ${avatarHtml}
     <div class="msg-bubble">${markdownToHtml(text)}</div>
   `;
   msgs.appendChild(div);
@@ -817,7 +841,7 @@ function appendStreamingMessage() {
   const div = document.createElement('div');
   div.className = 'msg agent';
   div.innerHTML = `
-    <div class="msg-avatar">AI</div>
+    <div class="five-avatar">⚡</div>
     <div class="msg-bubble" id="streaming-bubble"></div>
   `;
   msgs.appendChild(div);
@@ -931,20 +955,36 @@ function autoResize(el) {
 // ═══════════════════════════════════════════════════════
 //  AI API CALL (with SSE streaming)
 // ═══════════════════════════════════════════════════════
+let _currentAbortController = null;
+
+function stopGeneration() {
+  if (_currentAbortController) {
+    _currentAbortController.abort();
+    _currentAbortController = null;
+  }
+}
+
 async function callAI(userMessage) {
   isBusy = true;
-  document.getElementById('send-btn').disabled = true;
+  _currentAbortController = new AbortController();
+  const { signal } = _currentAbortController;
+
+  // Show stop button, hide send button
+  document.getElementById('send-btn').classList.add('hidden');
+  document.getElementById('stop-btn').classList.remove('hidden');
   showTyping(true);
 
   let fullText = '';
   let streamingDiv = null;
   let bubble = null;
+  let wasAborted = false;
 
   try {
     const resp = await fetch(`${API_BASE}/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: userMessage, sessionId: sessionId })
+      body: JSON.stringify({ message: userMessage, sessionId: sessionId }),
+      signal
     });
 
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -975,6 +1015,11 @@ async function callAI(userMessage) {
             const visibleText = fullText.replace(/<!--\s*confidence:\s*[0-9.]+\s*-->/gi, '').trimEnd();
             bubble.innerHTML = markdownToHtml(visibleText);
             document.getElementById('chat-messages').scrollTop = 9999;
+          }
+          if (data.type === 'tool_search') {
+            // Update typing indicator label dynamically
+            const label = data.source || data.tool || '';
+            updateTypingLabel(label);
           }
           if (data.type === 'confidence') {
             lastConfidenceScore = data.score;
@@ -1013,21 +1058,38 @@ async function callAI(userMessage) {
 
   } catch (err) {
     showTyping(false);
-    if (streamingDiv) streamingDiv.remove();
-    // R30: backend unavailable — show clear degradation message, offer direct ticket
-    appendMessage('agent', `I'm having trouble connecting to my knowledge base right now — my apologies for the interruption.
+    if (err.name === 'AbortError') {
+      wasAborted = true;
+      // Show partial response if any, with stopped notice
+      if (bubble) {
+        bubble.removeAttribute('id');
+        const stopNote = document.createElement('div');
+        stopNote.style.cssText = 'margin-top:8px;font-size:12px;color:#6b7280;font-style:italic;';
+        stopNote.textContent = '— stopped —';
+        bubble.appendChild(stopNote);
+      }
+      appendMessage('agent', `Generation stopped. Feel free to ask another question or continue where we left off!`);
+    } else {
+      if (streamingDiv) streamingDiv.remove();
+      // R30: backend unavailable — show clear degradation message, offer direct ticket
+      appendMessage('agent', `I'm having trouble connecting to my knowledge base right now — my apologies for the interruption.
 
 You can **[create a support ticket](#)** and an engineer will pick this up directly, or try sending your message again in a moment.`);
-    // Swap the inline link to a real action
-    const msgs = document.getElementById('chat-messages');
-    const lastBubble = msgs.querySelectorAll('.msg-bubble');
-    const lb = lastBubble[lastBubble.length - 1];
-    if (lb) {
-      const a = lb.querySelector('a[href="#"]');
-      if (a) { a.href = 'javascript:void(0)'; a.onclick = () => openTicketPanel('escalate'); }
+      // Swap the inline link to a real action
+      const msgs = document.getElementById('chat-messages');
+      const lastBubble = msgs.querySelectorAll('.msg-bubble');
+      const lb = lastBubble[lastBubble.length - 1];
+      if (lb) {
+        const a = lb.querySelector('a[href="#"]');
+        if (a) { a.href = 'javascript:void(0)'; a.onclick = () => openTicketPanel('escalate'); }
+      }
     }
   } finally {
     isBusy = false;
+    _currentAbortController = null;
+    // Restore send button
+    document.getElementById('send-btn').classList.remove('hidden');
+    document.getElementById('stop-btn').classList.add('hidden');
     document.getElementById('send-btn').disabled = false;
   }
 }
@@ -1103,6 +1165,7 @@ function showTyping(show) {
   if (show) {
     _typingMsgIdx = 0;
     textEl.textContent = THINKING_MSGS[0];
+    textEl.style.opacity = '1';
     clearInterval(_typingMsgInterval);
     _typingMsgInterval = setInterval(() => {
       _typingMsgIdx = (_typingMsgIdx + 1) % THINKING_MSGS.length;
@@ -1120,21 +1183,65 @@ function showTyping(show) {
   }
 }
 
+// Temporarily override typing text with a source label (e.g. from tool_search events)
+let _labelOverrideTimeout = null;
+function updateTypingLabel(label) {
+  if (!label) return;
+  const textEl = document.getElementById('typing-text');
+  if (!textEl) return;
+  clearInterval(_typingMsgInterval); // pause cycling
+  clearTimeout(_labelOverrideTimeout);
+  const sourceMap = {
+    fivetran_docs: 'Checking Fivetran docs…',
+    zendesk: 'Searching support history…',
+    knowledge_base: 'Searching knowledge base…',
+    web: 'Looking things up online…',
+    github: 'Checking GitHub…',
+    jira: 'Checking Jira…',
+  };
+  const display = sourceMap[label] || `Checking ${label}…`;
+  textEl.style.opacity = '0';
+  setTimeout(() => {
+    textEl.textContent = display;
+    textEl.style.opacity = '1';
+  }, 100);
+  // Resume cycling after 3s
+  _labelOverrideTimeout = setTimeout(() => {
+    _typingMsgInterval = setInterval(() => {
+      _typingMsgIdx = (_typingMsgIdx + 1) % THINKING_MSGS.length;
+      textEl.style.opacity = '0';
+      setTimeout(() => {
+        textEl.textContent = THINKING_MSGS[_typingMsgIdx];
+        textEl.style.opacity = '1';
+      }, 150);
+    }, 3500);
+  }, 3000);
+}
+
 // ═══════════════════════════════════════════════════════
 //  RESOLUTION FLOW
 // ═══════════════════════════════════════════════════════
 function handleResolved() {
   document.getElementById('resolution-bar').classList.add('hidden');
-  appendMessage('agent', `Excellent! Glad I could help resolve that for you. 🎉
+  appendMessage('agent', `Excellent! Really glad I could help resolve that. 🎉
 
-A **full transcript** of this conversation has been sent to your email and logged as a support record.
+A full transcript has been logged as a support record. Before you go — **how would you rate this experience?**`);
 
-If you run into anything else, I'm always here. Have a great day!`);
-
-  // Show CSAT
+  // Show CSAT inline after message
   setTimeout(() => {
     document.getElementById('csat-area').classList.remove('hidden');
-  }, 600);
+    document.getElementById('chat-messages').scrollTop = 9999;
+  }, 500);
+
+  // After CSAT prompt, invite follow-up
+  setTimeout(() => {
+    appendMessage('agent', `Is there anything else I can help you with today? I'm still here if you have more questions!`);
+    document.getElementById('chat-messages').scrollTop = 9999;
+  }, 1400);
+
+  // Keep input active (already active by default — just ensure it's not disabled)
+  document.getElementById('chat-input').disabled = false;
+  document.getElementById('chat-input').placeholder = 'Ask a follow-up…';
 
   // Background: create ai_resolved ticket in Zendesk
   createZendeskTicket({
