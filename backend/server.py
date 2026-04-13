@@ -73,13 +73,14 @@ CONFIDENCE_THRESHOLD  = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.8"))
 #
 #   FIRST_TOKEN_TIMEOUT: 30s — the very first stdout line (a system/session
 #     event) should always appear quickly regardless of MCP latency.
-#   BETWEEN_TOKEN_TIMEOUT: 150s — comfortably covers a slow MCP call
-#     (observed worst case ~2 min on api.triage.cx under load).
-#   STREAM_TIMEOUT: 600s — hard 10-min wall-clock cap matching observed
-#     maximum CLI response time for deeply multi-tool queries.
+#   BETWEEN_TOKEN_TIMEOUT: 180s — covers a slow MCP call with headroom.
+#     Long multi-part queries (e.g. 17 connectors × 6 questions) may issue
+#     many sequential tool calls each taking 30-120s on api.triage.cx.
+#   STREAM_TIMEOUT: 1800s — 30-min wall-clock cap for deeply complex queries
+#     that legitimately require researching many connectors/docs in sequence.
 FIRST_TOKEN_TIMEOUT   = int(os.environ.get("FIRST_TOKEN_TIMEOUT",   "30"))
-BETWEEN_TOKEN_TIMEOUT = int(os.environ.get("BETWEEN_TOKEN_TIMEOUT", "150"))
-STREAM_TIMEOUT        = int(os.environ.get("STREAM_TIMEOUT",        "600"))
+BETWEEN_TOKEN_TIMEOUT = int(os.environ.get("BETWEEN_TOKEN_TIMEOUT", "180"))
+STREAM_TIMEOUT        = int(os.environ.get("STREAM_TIMEOUT",        "1800"))
 
 # FivetranKnowledge MCP server URL (override via env var if it ever changes)
 FIVETRAN_MCP_URL = os.environ.get(

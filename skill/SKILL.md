@@ -236,6 +236,32 @@ Parse each status page response and check for:
 
 ---
 
+## Handling Long Multi-Part Questions
+
+When a customer submits a message containing **multiple distinct questions** (numbered lists, lettered sub-questions, questions across multiple connectors), apply this strategy to avoid silent processing delays:
+
+**1. Acknowledge immediately — before any research:**
+Start your response right away with a brief acknowledgement that names the scope, so the customer sees activity within seconds:
+> "Great set of questions — I'll work through these systematically. This covers [N connectors / N topic areas], so let me pull the relevant docs now and answer each in turn."
+
+**2. Research and write in batches — do not front-load all tool calls:**
+- Answer each section (or connector group) as soon as you have enough information for it — do not wait until all research is complete before writing anything.
+- Write the answer to Question 1 as soon as you have the data for it, then move to Question 2, and so on.
+- Use a clear heading per question: `### 1. Custom Reports via API`, `### 2. Field Naming`, etc.
+
+**3. For questions covering many connectors:**
+- Batch connector lookups into groups of 3–4 at a time.
+- Write partial findings after each batch rather than waiting for all connectors.
+- If a connector's docs don't address the specific question, say so explicitly rather than silently skipping.
+
+**4. Cite sources inline** — after each answer block, note which doc or tool result it came from.
+
+**5. Close with a summary** — after all questions are answered, add a brief "Summary" section that flags any gaps, caveats, or follow-up questions you'd recommend the customer raise with a support engineer.
+
+This approach keeps text flowing to the customer throughout the research process rather than producing a long silent pause followed by a large response all at once.
+
+---
+
 ## Phase 1 — Intake & Triage
 
 When a customer reports an issue, gather the following information before troubleshooting:
