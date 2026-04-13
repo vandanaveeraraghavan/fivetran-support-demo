@@ -1101,8 +1101,26 @@ You can **[create a support ticket](#)** and an engineer will pick this up direc
         );
         setTimeout(() => openTicketPanel('escalate'), 800);
       } else {
-        // High confidence or no score — show resolution bar
-        if (messageHistory.filter(m => m.role === 'agent').length >= 1) {
+        // High confidence or no score — show resolution bar only if the agent
+        // isn't asking the user a clarifying question. When the response ends
+        // with a question the issue isn't resolved yet, so the bar is premature.
+        const isAskingQuestion = (() => {
+          // Strip markdown/HTML, then look at the last ~300 chars for a trailing question
+          const plain = cleanText
+            .replace(/<!--[\s\S]*?-->/g, '')   // remove HTML comments
+            .replace(/<[^>]+>/g, '')            // remove any HTML tags
+            .replace(/\*+|_+|`+|#+/g, '')      // remove markdown syntax
+            .trim();
+          // Split into sentences; check if the last non-empty sentence ends with '?'
+          const sentences = plain.split(/(?<=[.!?])\s+/);
+          const lastSentence = sentences.reverse().find(s => s.trim().length > 0) || '';
+          if (lastSentence.trim().endsWith('?')) return true;
+          // Also catch responses that end mid-paragraph with a question (no trailing space)
+          if (plain.trimEnd().endsWith('?')) return true;
+          return false;
+        })();
+
+        if (!isAskingQuestion && messageHistory.filter(m => m.role === 'agent').length >= 1) {
           document.getElementById('resolution-bar').classList.remove('hidden');
         }
       }
