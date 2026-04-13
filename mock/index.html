@@ -1093,7 +1093,14 @@ You can **[create a support ticket](#)** and an engineer will pick this up direc
     if (cleanText) {
       messageHistory.push({ role: 'agent', text: cleanText });
 
-      if (lastConfidenceScore !== null && lastConfidenceScore < CONFIDENCE_THRESHOLD) {
+      // The resolution bar only makes sense when the AI explicitly decided it
+      // provided a complete answer — signalled by including a confidence comment.
+      // Responses with no confidence score (clarifying questions, greetings,
+      // partial info gathering) never show the bar.
+      if (lastConfidenceScore === null) {
+        // No confidence score → agent is still gathering info or having a
+        // conversational turn. Don't show the resolution bar.
+      } else if (lastConfidenceScore < CONFIDENCE_THRESHOLD) {
         // R15: low confidence — auto-trigger handoff, don't show resolution bar
         appendMessage('agent',
           `My confidence in this answer is **${Math.round(lastConfidenceScore * 100)}%** — below the threshold needed to consider this fully resolved. ` +
@@ -1101,26 +1108,21 @@ You can **[create a support ticket](#)** and an engineer will pick this up direc
         );
         setTimeout(() => openTicketPanel('escalate'), 800);
       } else {
-        // High confidence or no score — show resolution bar only if the agent
-        // isn't asking the user a clarifying question. When the response ends
-        // with a question the issue isn't resolved yet, so the bar is premature.
+        // High confidence score present — but still suppress if the response
+        // ends with a question (extra guard in case the AI included a score
+        // while still asking for more info).
         const isAskingQuestion = (() => {
-          // Strip markdown/HTML, then look at the last ~300 chars for a trailing question
           const plain = cleanText
-            .replace(/<!--[\s\S]*?-->/g, '')   // remove HTML comments
-            .replace(/<[^>]+>/g, '')            // remove any HTML tags
-            .replace(/\*+|_+|`+|#+/g, '')      // remove markdown syntax
+            .replace(/<!--[\s\S]*?-->/g, '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/\*+|_+|`+|#+/g, '')
             .trim();
-          // Split into sentences; check if the last non-empty sentence ends with '?'
           const sentences = plain.split(/(?<=[.!?])\s+/);
           const lastSentence = sentences.reverse().find(s => s.trim().length > 0) || '';
-          if (lastSentence.trim().endsWith('?')) return true;
-          // Also catch responses that end mid-paragraph with a question (no trailing space)
-          if (plain.trimEnd().endsWith('?')) return true;
-          return false;
+          return lastSentence.trim().endsWith('?') || plain.trimEnd().endsWith('?');
         })();
 
-        if (!isAskingQuestion && messageHistory.filter(m => m.role === 'agent').length >= 1) {
+        if (!isAskingQuestion) {
           document.getElementById('resolution-bar').classList.remove('hidden');
         }
       }
