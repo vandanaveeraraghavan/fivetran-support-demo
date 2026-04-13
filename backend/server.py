@@ -363,10 +363,19 @@ async def run_stream(cmd: list[str]):
 
     finally:
         _child_procs.discard(proc)  # deregister when done
+        # Give the process up to 5s to exit cleanly; if it's still alive, force-kill it
         try:
             await asyncio.wait_for(proc.wait(), timeout=5)
         except asyncio.TimeoutError:
-            pass
+            # Process is still alive — send SIGKILL and wait a final 3s
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=3)
+            except asyncio.TimeoutError:
+                pass
         print(f"[proc] exit code {proc.returncode}", flush=True)
 
 
@@ -457,6 +466,9 @@ async def chat_stream(body: dict):
             print(f"[timeout] {te}", flush=True)
             yield f"data: {json.dumps({'type':'error','message':str(te)})}\n\n"
         except Exception as exc:
+            import traceback
+            print(f"[error] unhandled exception in event_generator: {exc}", flush=True)
+            print(traceback.format_exc(), flush=True)
             yield f"data: {json.dumps({'type':'error','message':str(exc)})}\n\n"
         finally:
             if new_claude_session:
