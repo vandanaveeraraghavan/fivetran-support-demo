@@ -28,6 +28,7 @@ FIVETRAN_MCP_URL:
 import asyncio
 import json
 import os
+import signal
 import ssl
 import time
 import urllib.parse
@@ -96,6 +97,22 @@ else:
 
 # In-memory session store: browser_session_id → claude_session_id
 sessions: dict[str, str] = {}
+
+# ── Child process registry — kill all on shutdown ─────────────────────────────
+_child_procs: set[asyncio.subprocess.Process] = set()
+
+def _kill_all_children(*_):
+    """Kill every tracked Claude subprocess on SIGTERM/SIGINT so they don't
+    linger as orphans after the backend restarts."""
+    for proc in list(_child_procs):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    _child_procs.clear()
+
+signal.signal(signal.SIGTERM, _kill_all_children)
+signal.signal(signal.SIGINT,  _kill_all_children)
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Fivetran Support Backend")
@@ -269,6 +286,7 @@ async def run_stream(cmd: list[str]):
     )
     assert proc.stdout is not None
     assert proc.stdin  is not None
+    _child_procs.add(proc)  # track so shutdown can kill it
 
     async def read_stderr():
         assert proc.stderr is not None
@@ -343,6 +361,7 @@ async def run_stream(cmd: list[str]):
         raise  # re-raise so event_generator can emit the error SSE event
 
     finally:
+        _child_procs.discard(proc)  # deregister when done
         try:
             await asyncio.wait_for(proc.wait(), timeout=5)
         except asyncio.TimeoutError:
