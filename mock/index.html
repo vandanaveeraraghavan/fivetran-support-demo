@@ -258,9 +258,13 @@
   .input-wrap:focus-within { border-color: #2563eb; }
   #chat-input {
     flex: 1; border: none; outline: none; resize: none; font-size: 14px;
-    color: #111; background: transparent; max-height: 120px; min-height: 22px;
+    color: #111; background: transparent; max-height: 200px; min-height: 22px;
     line-height: 1.5; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: #d1d5db transparent;
   }
+  #chat-input::-webkit-scrollbar { width: 4px; }
+  #chat-input::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+  #chat-input::-webkit-scrollbar-track { background: transparent; }
   #chat-input::placeholder { color: #9ca3af; }
   .attach-btn { color: #9ca3af; padding: 2px; transition: color .15s; flex-shrink: 0; }
   .attach-btn:hover { color: #2563eb; }
@@ -960,7 +964,7 @@ function handleInputKey(e) {
 
 function autoResize(el) {
   el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px';
 }
 
 // ═══════════════════════════════════════════════════════
